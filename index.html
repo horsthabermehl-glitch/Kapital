@@ -1,790 +1,811 @@
-<!DOCTYPE html>
-<html lang="de">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Kapitalvermögen · Michaela &amp; Horst</title>
-<style>
-  :root {
-    --bg: #EEEBE2; --panel: #FFFFFF; --panelAlt: #F5F2EA;
-    --border: #DDD8CB; --borderSoft: #E8E3D6;
-    --ink: #20242C; --muted: #5B6270; --faint: #8B8579;
-    --gold: #9C7A3E; --goldSoft: #B8935A; --rust: #A6432C; --sage: #4F7A52;
-  }
-  * { box-sizing: border-box; }
-  body { margin: 0; background: var(--bg); color: var(--ink);
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
-  .serif { font-family: Georgia, "Times New Roman", serif; }
-  ::selection { background: var(--goldSoft); color: #1A1D22; }
-  .wrap { max-width: 1180px; margin: 0 auto; padding: 32px 24px 56px; }
-  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 4px;
-    padding: 20px 22px; display: flex; flex-direction: column; gap: 12px; margin-bottom: 18px; }
-  .panel-title { font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
-  .panel-subtitle { font-size: 12px; color: var(--faint); margin-top: 3px; }
-  .stat-label { font-size: 10.5px; color: var(--faint); letter-spacing: 0.06em; text-transform: uppercase; }
-  .stat-value { font-family: Georgia, serif; font-size: 21px; font-weight: 600; font-variant-numeric: tabular-nums; }
-  table { border-collapse: collapse; width: 100%; }
-  th, td { text-align: left; padding: 7px 9px; font-size: 12.5px; }
-  th { position: sticky; top: 0; background: var(--panelAlt); color: var(--muted); font-weight: 600;
-    letter-spacing: 0.04em; text-transform: uppercase; font-size: 10px; cursor: pointer; user-select: none;
-    border-bottom: 1px solid var(--border); white-space: nowrap; }
-  th:hover { background: var(--borderSoft); }
-  th.sort-active { color: var(--gold); }
-  tbody tr { border-bottom: 1px solid var(--borderSoft); }
-  tbody tr:hover { background: rgba(0,0,0,0.03); }
-  td input { background: transparent; border: 1px solid transparent; color: var(--ink); font-size: 12.5px;
-    width: 100%; padding: 3px 5px; border-radius: 2px; font-variant-numeric: tabular-nums; font-family: inherit; }
-  td input:hover { border-color: var(--borderSoft); }
-  td input:focus { border-color: var(--goldSoft); outline: none; background: rgba(184,147,90,0.08); }
-  .scrollbox { max-height: 460px; overflow-y: auto; border: 1px solid var(--border); border-radius: 3px; }
-  button.pill { background: var(--panelAlt); border: 1px solid var(--border); color: var(--muted); font-size: 11.5px;
-    padding: 5px 12px; border-radius: 20px; cursor: pointer; font-family: inherit; transition: all .15s; }
-  button.pill:hover { border-color: var(--goldSoft); color: var(--ink); }
-  button.pill.active { background: var(--goldSoft); color: #14171C; border-color: var(--goldSoft); font-weight: 600; }
-  button.print-btn { background: transparent; border: 1px solid var(--goldSoft); color: var(--gold); font-size: 12px;
-    padding: 8px 16px; border-radius: 3px; cursor: pointer; font-family: inherit; font-weight: 600; letter-spacing: 0.03em; }
-  button.print-btn:hover { background: var(--goldSoft); color: #14171C; }
-  select.filter, input.search { background: var(--panelAlt); border: 1px solid var(--border); color: var(--ink);
-    font-size: 12px; padding: 6px 10px; border-radius: 3px; font-family: inherit; }
-  .toolbar { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 8px; }
-  .toolbar-sep { padding-top: 6px; border-top: 1px solid var(--borderSoft); }
-  .legend-row { display: flex; align-items: center; gap: 8px; font-size: 12.5px; }
-  .swatch { width: 9px; height: 9px; border-radius: 2px; display: inline-block; flex-shrink: 0; }
-  .empty-state { text-align: center; padding: 40px 20px; color: var(--muted); }
-  .empty-state h3 { font-family: Georgia, serif; font-size: 20px; color: var(--ink); margin-bottom: 8px; }
+import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import {
+  PieChart, Pie, Cell, Tooltip, ResponsiveContainer,
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Legend, ReferenceLine
+} from "recharts";
 
-  .print-only { display: none; }
-  @media print {
-    @page { size: A4; margin: 16mm 14mm; }
-    .screen-only { display: none !important; }
-    .print-only { display: block !important; }
-    .po-table { width: 100%; border-collapse: collapse; }
-    .po-table th, .po-table td { padding: 6px 8px; font-size: 9.5px; text-align: left; }
-    .po-table thead { display: table-header-group; }
-    .po-table tr { page-break-inside: avoid; }
-    .po-section { page-break-before: always; }
-  }
-</style>
-</head>
-<body>
-<div id="app"></div>
-<input type="file" id="fileInput" accept="application/json,.json" style="display:none">
+/* ---------------------------------------------------------------------
+   Design tokens
+--------------------------------------------------------------------- */
+const T = {
+  bg: "#EEEBE2",
+  panel: "#FFFFFF",
+  panelAlt: "#F5F2EA",
+  border: "#DDD8CB",
+  borderSoft: "#E8E3D6",
+  textPrimary: "#20242C",
+  textMuted: "#5B6270",
+  textFaint: "#8B8579",
+  gold: "#9C7A3E",
+  goldSoft: "#B8935A",
+  blue: "#4F6E82",
+  rust: "#A6432C",
+  sage: "#4F7A52",
+};
 
-<script>
-(function () {
-  "use strict";
+const ASSET_COLORS = {
+  "Versicherung / Altersvorsorge": "#9B8AC4",
+  "Gold (physisch)": "#C9A24A",
+  "Festgeld / Termineinlagen": "#7396AC",
+  "Anleihen": "#7FA37F",
+  "Fonds / ETF": "#C97B63",
+  "Liquidität / Tagesgeld": "#ACA695",
+  "Einzelaktien": "#A75D5D",
+  "Sonstiges": "#5B6270",
+};
 
-  /* =============================================================
-     CONFIG / TOKENS
-  ============================================================= */
-  var T = {
-    bg: "#EEEBE2", panel: "#FFFFFF", panelAlt: "#F5F2EA", border: "#DDD8CB", borderSoft: "#E8E3D6",
-    textPrimary: "#20242C", textMuted: "#5B6270", textFaint: "#8B8579",
-    gold: "#9C7A3E", goldSoft: "#B8935A", rust: "#A6432C", sage: "#4F7A52"
-  };
-  var ASSET_COLORS = {
-    "Versicherung / Altersvorsorge": "#9B8AC4", "Gold (physisch)": "#C9A24A",
-    "Festgeld / Termineinlagen": "#7396AC", "Anleihen": "#7FA37F",
-    "Fonds / ETF": "#C97B63", "Liquidität / Tagesgeld": "#ACA695",
-    "Einzelaktien": "#A75D5D", "Sonstiges": "#5B6270"
-  };
-  var INST_COLORS = {
-    "Commerzbank": "#7396AC", "Sparkasse": "#B5563C", "Wüstenrot": "#7FA37F",
-    "Allianz-Versicherung": "#9B8AC4", "Deutsche Bank": "#93989F", "Alte Leipziger": "#ACA695",
-    "Eigenverwahrung (Gold)": "#C9A24A", "Nicht zugeordnet": "#454B56"
-  };
-  var STAND_DATUM = "22.05.2026";
-  var STORAGE_KEY = "kapitalvermoegen-positionen-v1";
+const INST_COLORS = {
+  "Commerzbank": "#7396AC",
+  "Sparkasse": "#B5563C",
+  "Wüstenrot": "#7FA37F",
+  "Allianz-Versicherung": "#9B8AC4",
+  "Deutsche Bank": "#93989F",
+  "Alte Leipziger": "#ACA695",
+  "Eigenverwahrung (Gold)": "#C9A24A",
+  "Nicht zugeordnet": "#454B56",
+};
 
-  // Keine echten Positionsdaten im Quelltext (dieses File landet in einem Git-Repo).
-  // Reale Werte werden ausschließlich lokal über "Backup importieren" eingespielt und
-  // in localStorage dieses Browsers gehalten — nie im Repository.
-  var DEFAULT_POSITIONS = [];
+/* ---------------------------------------------------------------------
+   Default dataset (Stand: 22.05.2026)
+--------------------------------------------------------------------- */
+const DEFAULT_POSITIONS = [{"id": 1, "label": "Girokonto", "institut": "Sparkasse", "assetClass": "Liquidität / Tagesgeld", "owner": "Gemeinsam", "saldo": 25000.0, "zins": 0.0, "faelligkeit": null, "zinsen": null, "nummer": "40601878", "zahl": null}, {"id": 2, "label": "Aktivsparen", "institut": "Sparkasse", "assetClass": "Liquidität / Tagesgeld", "owner": "Gemeinsam", "saldo": 59.86, "zins": 0.0001, "faelligkeit": null, "zinsen": 0.005986, "nummer": "40902364", "zahl": null}, {"id": 3, "label": "Riester-Vertrag Michaela", "institut": "Allianz-Versicherung", "assetClass": "Versicherung / Altersvorsorge", "owner": "Michaela", "saldo": 48065.2, "zins": 0.0, "faelligkeit": null, "zinsen": 0.0, "nummer": null, "zahl": null}, {"id": 4, "label": "Sparkassenbrief", "institut": "Sparkasse", "assetClass": "Festgeld / Termineinlagen", "owner": "Gemeinsam", "saldo": 40000.0, "zins": 0.0225, "faelligkeit": "2027-05-02", "zinsen": 900.0, "nummer": "DE03 5305 0180 0100 1930 06", "zahl": null}, {"id": 5, "label": "Sparkassenbrief", "institut": "Sparkasse", "assetClass": "Festgeld / Termineinlagen", "owner": "Gemeinsam", "saldo": 40000.0, "zins": 0.0225, "faelligkeit": "2027-05-08", "zinsen": 900.0, "nummer": "DE14 5305 0180 0100 1939 72", "zahl": null}, {"id": 6, "label": "Festgeld", "institut": "Wüstenrot", "assetClass": "Festgeld / Termineinlagen", "owner": "Gemeinsam", "saldo": 51000.0, "zins": 0.025, "faelligkeit": "2027-08-07", "zinsen": 1275.0, "nummer": "DE96 6042 0000 9204 1470 16", "zahl": null}, {"id": 7, "label": "Festgeld", "institut": "Wüstenrot", "assetClass": "Festgeld / Termineinlagen", "owner": "Gemeinsam", "saldo": 51000.0, "zins": 0.025, "faelligkeit": null, "zinsen": 1275.0, "nummer": null, "zahl": null}, {"id": 8, "label": "Festgeld", "institut": "Wüstenrot", "assetClass": "Festgeld / Termineinlagen", "owner": "Gemeinsam", "saldo": 30000.0, "zins": 0.025, "faelligkeit": "2027-01-25", "zinsen": 750.0, "nummer": null, "zahl": null}, {"id": 9, "label": "Festgeld", "institut": "Wüstenrot", "assetClass": "Festgeld / Termineinlagen", "owner": "Gemeinsam", "saldo": 20000.0, "zins": 0.025, "faelligkeit": "2027-09-12", "zinsen": 500.0, "nummer": "DE79 6042 0000 9204 3322 04", "zahl": null}, {"id": 10, "label": "Verrechnung", "institut": "Wüstenrot", "assetClass": "Liquidität / Tagesgeld", "owner": "Gemeinsam", "saldo": 7.19, "zins": null, "faelligkeit": null, "zinsen": null, "nummer": "DE43 6042 0000 9202 9460 43", "zahl": null}, {"id": 11, "label": "DEKA-RENTSPEZIAL CORPBD 9/2028 Inhaber-Anteile", "institut": "Sparkasse", "assetClass": "Fonds / ETF", "owner": "Gemeinsam", "saldo": 27240.0, "zins": null, "faelligkeit": null, "zinsen": null, "nummer": "DK09VJ6", "zahl": "250"}, {"id": 12, "label": "Weltzins-Invest 29,28 EUR", "institut": "Sparkasse", "assetClass": "Fonds / ETF", "owner": "Gemeinsam", "saldo": 6694.6, "zins": null, "faelligkeit": null, "zinsen": null, "nummer": "A1CXYM", "zahl": "340"}, {"id": 13, "label": "Festzinsanleihe Helaba", "institut": "Sparkasse", "assetClass": "Anleihen", "owner": "Gemeinsam", "saldo": 54879.0, "zins": 0.027, "faelligkeit": "2028-04-10", "zinsen": 1481.733, "nummer": "BYL0JJ6", "zahl": null}, {"id": 14, "label": "Vermögensverwaltung", "institut": "Commerzbank", "assetClass": "Fonds / ETF", "owner": "Gemeinsam", "saldo": 62430.2, "zins": null, "faelligkeit": null, "zinsen": null, "nummer": "A0M16S", "zahl": "380"}, {"id": 15, "label": "DWS Deutschland AK: 169,09 EUR", "institut": "Commerzbank", "assetClass": "Fonds / ETF", "owner": "Gemeinsam", "saldo": 10103.7, "zins": null, "faelligkeit": null, "zinsen": null, "nummer": "849096", "zahl": "30"}, {"id": 16, "label": "AGIF Euro Div AK: 126,87 EUR", "institut": "Commerzbank", "assetClass": "Fonds / ETF", "owner": "Gemeinsam", "saldo": 3547.29, "zins": null, "faelligkeit": null, "zinsen": null, "nummer": "A0RF5F", "zahl": "20.539"}, {"id": 17, "label": "AGIF Allianz Thematic.AEO", "institut": "Commerzbank", "assetClass": "Fonds / ETF", "owner": "Gemeinsam", "saldo": 2354.01, "zins": null, "faelligkeit": null, "zinsen": null, "nummer": "A2AQF1", "zahl": "5.796"}, {"id": 18, "label": "BASF", "institut": "Commerzbank", "assetClass": "Einzelaktien", "owner": "Gemeinsam", "saldo": 1288.75, "zins": null, "faelligkeit": null, "zinsen": null, "nummer": "BASF11", "zahl": "25"}, {"id": 19, "label": "Allianz-Aktien", "institut": "Commerzbank", "assetClass": "Einzelaktien", "owner": "Gemeinsam", "saldo": 19280.0, "zins": null, "faelligkeit": null, "zinsen": null, "nummer": "840400", "zahl": "50"}, {"id": 20, "label": "Commerzbank AG", "institut": "Commerzbank", "assetClass": "Einzelaktien", "owner": "Gemeinsam", "saldo": 576.16, "zins": null, "faelligkeit": null, "zinsen": null, "nummer": "CBK100", "zahl": "16"}, {"id": 21, "label": "Girokonto Michaela", "institut": "Commerzbank", "assetClass": "Liquidität / Tagesgeld", "owner": "Michaela", "saldo": 530.0, "zins": null, "faelligkeit": null, "zinsen": null, "nummer": "841556000", "zahl": null}, {"id": 22, "label": "Concentra AK: 52,11", "institut": "Commerzbank", "assetClass": "Fonds / ETF", "owner": "Gemeinsam", "saldo": 10459.97, "zins": null, "faelligkeit": null, "zinsen": null, "nummer": "847500", "zahl": "71.021"}, {"id": 23, "label": "DWS TOP Dividende", "institut": "Commerzbank", "assetClass": "Fonds / ETF", "owner": "Gemeinsam", "saldo": 4045.4, "zins": null, "faelligkeit": null, "zinsen": null, "nummer": "984811", "zahl": "23.977"}, {"id": 24, "label": "COBA Stufenzinsanleihe", "institut": "Commerzbank", "assetClass": "Anleihen", "owner": "Gemeinsam", "saldo": 20086.0, "zins": 0.032, "faelligkeit": "2027-02-01", "zinsen": 642.752, "nummer": "CZ43ZM", "zahl": null}, {"id": 25, "label": "Festzinsanleihe Commerzbank", "institut": "Commerzbank", "assetClass": "Anleihen", "owner": "Gemeinsam", "saldo": 19990.8, "zins": 0.033, "faelligkeit": "2026-09-14", "zinsen": 659.6964, "nummer": "CZ43Z6", "zahl": null}, {"id": 26, "label": "Deutsche Bank", "institut": "Commerzbank", "assetClass": "Anleihen", "owner": "Gemeinsam", "saldo": 19628.0, "zins": 0.021, "faelligkeit": "2028-05-02", "zinsen": 412.188, "nummer": "DB9WDN", "zahl": null}, {"id": 27, "label": "STE Generale", "institut": "Commerzbank", "assetClass": "Anleihen", "owner": "Gemeinsam", "saldo": 48425.0, "zins": 0.02, "faelligkeit": "2026-09-07", "zinsen": 968.5, "nummer": "SR7YF9", "zahl": null}, {"id": 28, "label": "KFW 24/29", "institut": "Commerzbank", "assetClass": "Anleihen", "owner": "Gemeinsam", "saldo": 39433.2, "zins": 0.02375, "faelligkeit": "2029-10-04", "zinsen": 936.5385, "nummer": "A38J4B", "zahl": null}, {"id": 29, "label": "Commerzbank AG", "institut": "Commerzbank", "assetClass": "Anleihen", "owner": "Gemeinsam", "saldo": 24610.0, "zins": 0.024, "faelligkeit": "2030-03-20", "zinsen": 590.64, "nummer": "CZ457Z", "zahl": null}, {"id": 30, "label": "KFW 23/31", "institut": "Commerzbank", "assetClass": "Anleihen", "owner": "Gemeinsam", "saldo": 24318.96, "zins": 0.0325, "faelligkeit": "2031-03-24", "zinsen": 790.3662, "nummer": "A4SAYS", "zahl": null}, {"id": 31, "label": "MEM EXP ALV 26/30", "institut": "Commerzbank", "assetClass": "Anleihen", "owner": "Gemeinsam", "saldo": 7082.04, "zins": null, "faelligkeit": "2030-03-11", "zinsen": null, "nummer": "DU7T6V", "zahl": "7"}, {"id": 32, "label": "MEM EXP LHA 26/30", "institut": "Commerzbank", "assetClass": "Anleihen", "owner": "Gemeinsam", "saldo": 7656.4, "zins": null, "faelligkeit": "2030-03-11", "zinsen": null, "nummer": "DU728P", "zahl": "8"}, {"id": 33, "label": "SGIS M.EXP.TS 26/30 BAS", "institut": "Commerzbank", "assetClass": "Anleihen", "owner": "Gemeinsam", "saldo": 7967.6, "zins": null, "faelligkeit": "2030-02-13", "zinsen": null, "nummer": "SH9Y77", "zahl": "8"}, {"id": 34, "label": "SGIS M.EXP.TS 26/30 IFX", "institut": "Commerzbank", "assetClass": "Anleihen", "owner": "Gemeinsam", "saldo": 7161.63, "zins": null, "faelligkeit": "2030-03-11", "zinsen": null, "nummer": "SH9Y7H", "zahl": "7"}, {"id": 35, "label": "AIS-AM.EUR.STX50 EOD", "institut": "Commerzbank", "assetClass": "Fonds / ETF", "owner": "Gemeinsam", "saldo": 47177.76, "zins": null, "faelligkeit": null, "zinsen": null, "nummer": "A2H59M", "zahl": null}, {"id": 36, "label": "X(IE)-MSCI World VAL1.CDL", "institut": "Commerzbank", "assetClass": "Fonds / ETF", "owner": "Gemeinsam", "saldo": 62434.93, "zins": null, "faelligkeit": null, "zinsen": null, "nummer": "A1103E", "zahl": null}, {"id": 37, "label": "LBBW", "institut": "Commerzbank", "assetClass": "Anleihen", "owner": "Gemeinsam", "saldo": 20102.0, "zins": 0.0325, "faelligkeit": "2027-09-27", "zinsen": 653.315, "nummer": "LB387B", "zahl": null}, {"id": 38, "label": "Klimavest ELTIF EOD", "institut": "Commerzbank", "assetClass": "Fonds / ETF", "owner": "Gemeinsam", "saldo": 27797.5, "zins": null, "faelligkeit": null, "zinsen": null, "nummer": "KLV100", "zahl": "250"}, {"id": 39, "label": "KfW-AUSD-Anleihe", "institut": "Commerzbank", "assetClass": "Anleihen", "owner": "Gemeinsam", "saldo": 8549.87, "zins": 0.043, "faelligkeit": "2027-07-13", "zinsen": 367.64441, "nummer": "A30V5S", "zahl": null}, {"id": 40, "label": "Festzinssparen", "institut": "Deutsche Bank", "assetClass": "Festgeld / Termineinlagen", "owner": "Gemeinsam", "saldo": 100000.0, "zins": 0.022, "faelligkeit": "2027-03-31", "zinsen": 2200.0, "nummer": null, "zahl": null}, {"id": 41, "label": "TopZinskonto Plus", "institut": "Commerzbank", "assetClass": "Liquidität / Tagesgeld", "owner": "Gemeinsam", "saldo": 55220.85, "zins": 0.017, "faelligkeit": null, "zinsen": 938.75445, "nummer": "809548601", "zahl": null}, {"id": 42, "label": "AUD-Fremdwähungs- konto 1.253,41 AUD", "institut": "Commerzbank", "assetClass": "Liquidität / Tagesgeld", "owner": "Gemeinsam", "saldo": 769.29, "zins": null, "faelligkeit": null, "zinsen": null, "nummer": "809548601", "zahl": null}, {"id": 43, "label": "Wertpapiersparpläne VL", "institut": "Commerzbank", "assetClass": "Liquidität / Tagesgeld", "owner": "Gemeinsam", "saldo": 0.04, "zins": null, "faelligkeit": null, "zinsen": null, "nummer": "809548603", "zahl": null}, {"id": 44, "label": "TopZinskonto Plus", "institut": "Commerzbank", "assetClass": "Liquidität / Tagesgeld", "owner": "Gemeinsam", "saldo": 2568.87, "zins": 0.012, "faelligkeit": null, "zinsen": 15.41322, "nummer": "809548604", "zahl": null}, {"id": 45, "label": "TopZinskonto Plus", "institut": "Commerzbank", "assetClass": "Liquidität / Tagesgeld", "owner": "Gemeinsam", "saldo": 103984.52, "zins": 0.017, "faelligkeit": null, "zinsen": 883.86842, "nummer": "809548605", "zahl": null}, {"id": 46, "label": "TopZinskonto Plus", "institut": "Commerzbank", "assetClass": "Liquidität / Tagesgeld", "owner": "Gemeinsam", "saldo": 1717.58, "zins": 0.0, "faelligkeit": null, "zinsen": 0.0, "nummer": "809548607", "zahl": null}, {"id": 47, "label": "Wertpapier Geld Konto", "institut": "Commerzbank", "assetClass": "Liquidität / Tagesgeld", "owner": "Gemeinsam", "saldo": 3940.24, "zins": null, "faelligkeit": null, "zinsen": null, "nummer": "809289801", "zahl": null}, {"id": 48, "label": "TopZinskonto Plus", "institut": "Commerzbank", "assetClass": "Liquidität / Tagesgeld", "owner": "Gemeinsam", "saldo": 181.77, "zins": 0.012, "faelligkeit": null, "zinsen": 2.18124, "nummer": "809289802", "zahl": null}, {"id": 49, "label": "Sparkonto 3 Monate", "institut": "Commerzbank", "assetClass": "Liquidität / Tagesgeld", "owner": "Gemeinsam", "saldo": 115.26, "zins": 0.005, "faelligkeit": null, "zinsen": 0.5763, "nummer": "809289804", "zahl": null}, {"id": 50, "label": "Allianz Schatzbrief Index Select", "institut": "Allianz-Versicherung", "assetClass": "Versicherung / Altersvorsorge", "owner": "Gemeinsam", "saldo": 96010.43, "zins": 0.026, "faelligkeit": "2027-08-01", "zinsen": 2496.27118, "nummer": "206248979", "zahl": null}, {"id": 51, "label": "Lebensversicherung", "institut": "Alte Leipziger", "assetClass": "Versicherung / Altersvorsorge", "owner": "Gemeinsam", "saldo": 13776.68, "zins": null, "faelligkeit": "2033-07-01", "zinsen": null, "nummer": null, "zahl": null}, {"id": 52, "label": "Allianz Schatzbrief Perspektive", "institut": "Nicht zugeordnet", "assetClass": "Versicherung / Altersvorsorge", "owner": "Michaela", "saldo": 20000.0, "zins": null, "faelligkeit": null, "zinsen": null, "nummer": "AL-9976090842", "zahl": "einmalig"}, {"id": 53, "label": "Allianz Schatzbrief Perspektive", "institut": "Nicht zugeordnet", "assetClass": "Versicherung / Altersvorsorge", "owner": "Horst", "saldo": 20000.0, "zins": null, "faelligkeit": null, "zinsen": null, "nummer": "AL-9976091212", "zahl": "einmalig"}, {"id": 54, "label": "Allianz Finanzpolice", "institut": "Commerzbank", "assetClass": "Versicherung / Altersvorsorge", "owner": "Michaela", "saldo": 31492.53, "zins": null, "faelligkeit": "2035-01-01", "zinsen": null, "nummer": "AL-9931998123", "zahl": "einmalig"}, {"id": 55, "label": "Allianz Finanzpolice", "institut": "Commerzbank", "assetClass": "Versicherung / Altersvorsorge", "owner": "Horst", "saldo": 32132.12, "zins": null, "faelligkeit": "2039-01-01", "zinsen": null, "nummer": "AL-9931999328", "zahl": "einmalig"}, {"id": 56, "label": "Allianz-Lebensversicherung", "institut": "Commerzbank", "assetClass": "Versicherung / Altersvorsorge", "owner": "Horst", "saldo": 75957.9, "zins": null, "faelligkeit": "2032-12-01", "zinsen": null, "nummer": "AL-9932006788", "zahl": "jährlich"}, {"id": 57, "label": "Allianz-Lebensversicherung", "institut": "Nicht zugeordnet", "assetClass": "Versicherung / Altersvorsorge", "owner": "Michaela", "saldo": 37699.9, "zins": null, "faelligkeit": "2032-12-01", "zinsen": null, "nummer": "AL-9932006300", "zahl": "jährlich"}, {"id": 58, "label": "Allianz Finanzpolice", "institut": "Nicht zugeordnet", "assetClass": "Versicherung / Altersvorsorge", "owner": "Michaela", "saldo": 52844.94, "zins": null, "faelligkeit": "2037-01-01", "zinsen": null, "nummer": "AL-9938969261", "zahl": "einmalig"}, {"id": 59, "label": "Allianz Schatzbrief Perspektive", "institut": "Nicht zugeordnet", "assetClass": "Versicherung / Altersvorsorge", "owner": "Horst", "saldo": 20000.0, "zins": null, "faelligkeit": "2038-04-01", "zinsen": null, "nummer": "AL-9976091212", "zahl": "einmalig"}, {"id": 60, "label": "betriebliche AV Horst", "institut": "Sparkasse", "assetClass": "Versicherung / Altersvorsorge", "owner": "Horst", "saldo": 15376.0, "zins": null, "faelligkeit": null, "zinsen": null, "nummer": null, "zahl": null}, {"id": 61, "label": "Gold AK 4.780,00 EUR", "institut": "Eigenverwahrung (Gold)", "assetClass": "Gold (physisch)", "owner": "Gemeinsam", "saldo": 30601.0, "zins": null, "faelligkeit": null, "zinsen": null, "nummer": null, "zahl": "250g"}, {"id": 62, "label": "Gold AK 5.860,00 EUR", "institut": "Eigenverwahrung (Gold)", "assetClass": "Gold (physisch)", "owner": "Gemeinsam", "saldo": 30601.0, "zins": null, "faelligkeit": null, "zinsen": null, "nummer": null, "zahl": "250g"}, {"id": 63, "label": "Gold AK 5.860,00 EUR", "institut": "Eigenverwahrung (Gold)", "assetClass": "Gold (physisch)", "owner": "Gemeinsam", "saldo": 30601.0, "zins": null, "faelligkeit": null, "zinsen": null, "nummer": null, "zahl": "250g"}, {"id": 64, "label": "Gold AK 6.339,00 EUR", "institut": "Eigenverwahrung (Gold)", "assetClass": "Gold (physisch)", "owner": "Gemeinsam", "saldo": 30601.0, "zins": null, "faelligkeit": null, "zinsen": null, "nummer": null, "zahl": "250g"}, {"id": 65, "label": "Gold AK 8.834,00 EUR", "institut": "Eigenverwahrung (Gold)", "assetClass": "Gold (physisch)", "owner": "Gemeinsam", "saldo": 30601.0, "zins": null, "faelligkeit": "2017-07-20", "zinsen": null, "nummer": null, "zahl": "250g"}, {"id": 66, "label": "Gold AK 8.776,00 EUR", "institut": "Eigenverwahrung (Gold)", "assetClass": "Gold (physisch)", "owner": "Gemeinsam", "saldo": 30601.0, "zins": null, "faelligkeit": "2018-02-05", "zinsen": null, "nummer": null, "zahl": "250g"}, {"id": 67, "label": "Gold AK 8.897,00 EUR", "institut": "Eigenverwahrung (Gold)", "assetClass": "Gold (physisch)", "owner": "Gemeinsam", "saldo": 30601.0, "zins": null, "faelligkeit": "2018-10-25", "zinsen": null, "nummer": null, "zahl": "250g"}, {"id": 68, "label": "Gold AK 8.897,00 EUR", "institut": "Eigenverwahrung (Gold)", "assetClass": "Gold (physisch)", "owner": "Gemeinsam", "saldo": 30601.0, "zins": null, "faelligkeit": "2018-10-25", "zinsen": null, "nummer": null, "zahl": "250g"}, {"id": 69, "label": "Gold AK 11.541,00 EUR", "institut": "Eigenverwahrung (Gold)", "assetClass": "Gold (physisch)", "owner": "Gemeinsam", "saldo": 30601.0, "zins": null, "faelligkeit": "2020-01-07", "zinsen": null, "nummer": null, "zahl": "250g"}, {"id": 70, "label": "Gold AK 11.541,00 EUR", "institut": "Eigenverwahrung (Gold)", "assetClass": "Gold (physisch)", "owner": "Gemeinsam", "saldo": 30601.0, "zins": null, "faelligkeit": "2020-01-07", "zinsen": null, "nummer": null, "zahl": "250g"}, {"id": 71, "label": "Gold AK 12.395,00 EUR", "institut": "Eigenverwahrung (Gold)", "assetClass": "Gold (physisch)", "owner": "Gemeinsam", "saldo": 30601.0, "zins": null, "faelligkeit": "2020-12-11", "zinsen": null, "nummer": null, "zahl": "250g"}, {"id": 72, "label": "Gold AK 12.395,00 EUR", "institut": "Eigenverwahrung (Gold)", "assetClass": "Gold (physisch)", "owner": "Gemeinsam", "saldo": 30601.0, "zins": null, "faelligkeit": "2020-12-11", "zinsen": null, "nummer": null, "zahl": "250g"}, {"id": 73, "label": "Gold AK 12.249,00 EUR", "institut": "Eigenverwahrung (Gold)", "assetClass": "Gold (physisch)", "owner": "Gemeinsam", "saldo": 30601.0, "zins": null, "faelligkeit": "2021-02-24", "zinsen": null, "nummer": null, "zahl": "250g"}, {"id": 74, "label": "Gold AK 12.249,00 EUR", "institut": "Eigenverwahrung (Gold)", "assetClass": "Gold (physisch)", "owner": "Gemeinsam", "saldo": 30601.0, "zins": null, "faelligkeit": "2021-02-24", "zinsen": null, "nummer": null, "zahl": "250g"}, {"id": 75, "label": "Gold AK 13.046,00 EUR", "institut": "Eigenverwahrung (Gold)", "assetClass": "Gold (physisch)", "owner": "Gemeinsam", "saldo": 30601.0, "zins": null, "faelligkeit": "2021-12-22", "zinsen": null, "nummer": null, "zahl": "250g"}];
 
-  var DEMO_POSITIONS = [
-    { id: 1, label: "Girokonto (Beispiel)", institut: "Musterbank", assetClass: "Liquidität / Tagesgeld", owner: "Gemeinsam", saldo: 12000, zins: 0, faelligkeit: null, zinsen: null, nummer: null },
-    { id: 2, label: "Festgeld (Beispiel)", institut: "Musterbank", assetClass: "Festgeld / Termineinlagen", owner: "Gemeinsam", saldo: 40000, zins: 0.025, faelligkeit: "2027-06-01", zinsen: 1000, nummer: null },
-    { id: 3, label: "Unternehmensanleihe (Beispiel)", institut: "Musterbank", assetClass: "Anleihen", owner: "Gemeinsam", saldo: 25000, zins: 0.03, faelligkeit: "2029-01-01", zinsen: 750, nummer: null },
-    { id: 4, label: "Aktienfonds (Beispiel)", institut: "Musterbank", assetClass: "Fonds / ETF", owner: "Gemeinsam", saldo: 30000, zins: null, faelligkeit: null, zinsen: null, nummer: null },
-    { id: 5, label: "Rentenversicherung (Beispiel)", institut: "Musterversicherung", assetClass: "Versicherung / Altersvorsorge", owner: "Horst", saldo: 20000, zins: null, faelligkeit: "2035-01-01", zinsen: null, nummer: null },
-    { id: 6, label: "Gold 250g (Beispiel)", institut: "Eigenverwahrung (Gold)", assetClass: "Gold (physisch)", owner: "Gemeinsam", saldo: 18000, zins: null, faelligkeit: null, zinsen: null, nummer: null }
-  ];
+const STAND_DATUM = "22.05.2026";
+const STORAGE_KEY = "kapitalvermoegen-positionen-v1";
+const OWNER_OPTIONS = ["Gemeinsam", "Horst", "Michaela"];
+const ASSET_CLASS_OPTIONS = Object.keys(ASSET_COLORS);
+const INSTITUTE_OPTIONS = Object.keys(INST_COLORS);
 
-  /* =============================================================
-     STATE
-  ============================================================= */
-  var STATE = {
-    positions: loadPositions(),
-    search: "", filterInst: "Alle", filterClass: "Alle",
-    sortKey: "saldo", sortDir: "desc",
-    editMode: false, saveNote: ""
-  };
+/* ---------------------------------------------------------------------
+   Formatting helpers
+--------------------------------------------------------------------- */
+const eur = (n, digits = 0) =>
+  new Intl.NumberFormat("de-DE", { style: "currency", currency: "EUR", minimumFractionDigits: digits, maximumFractionDigits: digits }).format(n || 0);
+const eur0 = (n) => eur(n, 0);
+const pct = (n, digits = 1) => `${(n * 100).toFixed(digits).replace(".", ",")} %`;
+const num = (n) => new Intl.NumberFormat("de-DE").format(n);
+const yearOf = (d) => (d ? d.slice(0, 4) : null);
 
-  function loadPositions() {
-    try {
-      var raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) {
-        var arr = JSON.parse(raw);
-        if (Array.isArray(arr)) return arr;
+function parseAK(label) {
+  const m = /([\d.]+,\d+)\s*EUR/.exec(label || "");
+  if (!m) return null;
+  return parseFloat(m[1].replace(/\./g, "").replace(",", "."));
+}
+
+/* ---------------------------------------------------------------------
+   Small building blocks
+--------------------------------------------------------------------- */
+function Panel({ title, subtitle, children, style }) {
+  return (
+    <div style={{
+      background: T.panel, border: `1px solid ${T.border}`, borderRadius: 4,
+      padding: "22px 24px", display: "flex", flexDirection: "column", gap: 14, ...style
+    }}>
+      {title && (
+        <div>
+          <div style={{
+            fontFamily: "'IBM Plex Sans', sans-serif", fontSize: 11, letterSpacing: "0.11em",
+            textTransform: "uppercase", color: T.textMuted, fontWeight: 600
+          }}>{title}</div>
+          {subtitle && <div style={{ fontSize: 12.5, color: T.textFaint, marginTop: 3 }}>{subtitle}</div>}
+        </div>
+      )}
+      {children}
+    </div>
+  );
+}
+
+function StatChip({ label, value, tone }) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 130 }}>
+      <div style={{ fontSize: 11, color: T.textFaint, letterSpacing: "0.06em", textTransform: "uppercase" }}>{label}</div>
+      <div style={{
+        fontFamily: "'Fraunces', serif", fontSize: 22, fontWeight: 500,
+        color: tone || T.textPrimary, fontVariantNumeric: "tabular-nums"
+      }}>{value}</div>
+    </div>
+  );
+}
+
+function CustomTooltip({ active, payload, label }) {
+  if (!active || !payload || !payload.length) return null;
+  return (
+    <div style={{
+      background: T.panelAlt, border: `1px solid ${T.border}`, borderRadius: 3,
+      padding: "10px 13px", fontSize: 12.5, color: T.textPrimary, fontFamily: "'IBM Plex Sans', sans-serif"
+    }}>
+      {label && <div style={{ color: T.textMuted, marginBottom: 4 }}>{label}</div>}
+      {payload.map((p, i) => (
+        <div key={i} style={{ display: "flex", justifyContent: "space-between", gap: 16 }}>
+          <span style={{ color: p.color || p.fill }}>{p.name}</span>
+          <span style={{ fontVariantNumeric: "tabular-nums" }}>{eur0(p.value)}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------------
+   Main component
+--------------------------------------------------------------------- */
+export default function KapitalDashboard() {
+  const [positions, setPositions] = useState(DEFAULT_POSITIONS);
+  const [loaded, setLoaded] = useState(false);
+  const [search, setSearch] = useState("");
+  const [filterInst, setFilterInst] = useState("Alle");
+  const [filterClass, setFilterClass] = useState("Alle");
+  const [sortKey, setSortKey] = useState("saldo");
+  const [sortDir, setSortDir] = useState("desc");
+  const [editMode, setEditMode] = useState(false);
+  const [saveNote, setSaveNote] = useState("");
+
+  // load persisted edits once
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await window.storage.get(STORAGE_KEY, false);
+        if (res && res.value) {
+          const parsed = JSON.parse(res.value);
+          if (Array.isArray(parsed) && parsed.length) setPositions(parsed);
+        }
+      } catch (e) {
+        // no stored value yet — keep defaults
       }
-    } catch (e) { /* localStorage nicht verfügbar oder Daten defekt */ }
-    return DEFAULT_POSITIONS.slice();
-  }
+      setLoaded(true);
+    })();
+  }, []);
 
-  function persist() {
+  const persist = useCallback(async (next) => {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(STATE.positions));
-      flashNote("Gespeichert");
+      await window.storage.set(STORAGE_KEY, JSON.stringify(next), false);
+      setSaveNote("Gespeichert");
+      setTimeout(() => setSaveNote(""), 1500);
     } catch (e) {
-      flashNote("Speichern fehlgeschlagen");
+      setSaveNote("Speichern fehlgeschlagen");
+      setTimeout(() => setSaveNote(""), 2000);
     }
-  }
+  }, []);
 
-  var flashTimer = null;
-  function flashNote(msg) {
-    STATE.saveNote = msg;
-    renderSaveNoteOnly();
-    clearTimeout(flashTimer);
-    flashTimer = setTimeout(function () { STATE.saveNote = ""; renderSaveNoteOnly(); }, 1800);
-  }
-  function renderSaveNoteOnly() {
-    var el = document.getElementById("saveNote");
-    if (el) el.textContent = STATE.saveNote;
-  }
-
-  /* =============================================================
-     FORMATTING HELPERS
-  ============================================================= */
-  function eur(n, digits) {
-    digits = digits === undefined ? 0 : digits;
-    return new Intl.NumberFormat("de-DE", { style: "currency", currency: "EUR", minimumFractionDigits: digits, maximumFractionDigits: digits }).format(n || 0);
-  }
-  function eur0(n) { return eur(n, 0); }
-  function pct(n, digits) {
-    digits = digits === undefined ? 1 : digits;
-    if (n === null || n === undefined || isNaN(n)) return "–";
-    return (n * 100).toFixed(digits).replace(".", ",") + " %";
-  }
-  function num(n) { return new Intl.NumberFormat("de-DE").format(n); }
-  function dateDe(iso) { return iso ? iso.split("-").reverse().join(".") : "–"; }
-  function escapeHtml(s) {
-    return String(s === null || s === undefined ? "" : s)
-      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-  }
-  function parseAK(label) {
-    var m = /([\d.]+,\d+)\s*EUR/.exec(label || "");
-    return m ? parseFloat(m[1].replace(/\./g, "").replace(",", ".")) : null;
-  }
-
-  /* =============================================================
-     AGGREGATES
-  ============================================================= */
-  function groupSum(positions, key) {
-    var m = {}, order = [];
-    positions.forEach(function (p) {
-      var k = p[key];
-      if (!(k in m)) { m[k] = 0; order.push(k); }
-      m[k] += p.saldo;
+  const updatePosition = (id, field, value) => {
+    setPositions((prev) => {
+      const next = prev.map((p) => (p.id === id ? { ...p, [field]: value } : p));
+      persist(next);
+      return next;
     });
-    return order.map(function (name) { return { name: name, value: m[name] }; })
-      .sort(function (a, b) { return b.value - a.value; });
-  }
+  };
 
-  function computeAll(positions) {
-    var total = positions.reduce(function (s, p) { return s + (Number(p.saldo) || 0); }, 0);
-    var byClass = groupSum(positions, "assetClass");
-    var byInst = groupSum(positions, "institut");
-    var byOwner = groupSum(positions, "owner");
-    var hhi = total ? byInst.reduce(function (s, i) { return s + Math.pow((i.value / total) * 100, 2); }, 0) : 0;
+  const addPosition = () => {
+    setPositions((prev) => {
+      const nextId = prev.reduce((m, p) => Math.max(m, p.id), 0) + 1;
+      const newRow = {
+        id: nextId, label: "Neue Position", nummer: "", institut: "Sparkasse",
+        assetClass: "Liquidität / Tagesgeld", owner: "Gemeinsam",
+        saldo: 0, zins: null, faelligkeit: null, zinsen: null,
+      };
+      const next = [...prev, newRow];
+      persist(next);
+      return next;
+    });
+    setEditMode(true);
+    setSortKey("id"); setSortDir("desc");
+    setFilterInst("Alle"); setFilterClass("Alle"); setSearch("");
+  };
 
-    var rated = positions.filter(function (p) { return p.zins !== null && p.zins !== undefined; });
-    var base = rated.reduce(function (s, p) { return s + p.saldo; }, 0);
-    var weightedRate = base ? rated.reduce(function (s, p) { return s + p.saldo * p.zins; }, 0) / base : 0;
+  const deletePosition = (id) => {
+    setPositions((prev) => {
+      const next = prev.filter((p) => p.id !== id);
+      persist(next);
+      return next;
+    });
+  };
 
-    var totalInterest = positions.reduce(function (s, p) {
+  const resetData = () => {
+    if (!window.confirm("Alle Positionen auf die Ausgangsdaten (Stand " + STAND_DATUM + ") zurücksetzen? Eigene Änderungen gehen verloren.")) return;
+    setPositions(DEFAULT_POSITIONS);
+    persist(DEFAULT_POSITIONS);
+  };
+
+  const downloadBlob = (content, filename, mime) => {
+    const blob = new Blob([content], { type: mime });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(url);
+  };
+
+  const exportBackup = () => {
+    const payload = { exportedAt: new Date().toISOString(), standDatum: STAND_DATUM, version: 1, positions };
+    const dateStr = new Date().toISOString().slice(0, 10);
+    downloadBlob(JSON.stringify(payload, null, 2), `Kapitalvermoegen-Backup-${dateStr}.json`, "application/json");
+    setSaveNote("Backup heruntergeladen");
+    setTimeout(() => setSaveNote(""), 2000);
+  };
+
+  const exportCSV = () => {
+    const headers = ["Bezeichnung", "Institut", "Anlageklasse", "Eigentümer", "Saldo", "Zins", "Fälligkeit", "Nummer"];
+    const escape = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+    const rows = positions.map((p) => [
+      p.label, p.institut, p.assetClass, p.owner,
+      String(p.saldo).replace(".", ","),
+      p.zins !== null && p.zins !== undefined ? String(p.zins).replace(".", ",") : "",
+      p.faelligkeit || "", p.nummer || "",
+    ].map(escape).join(";"));
+    const csv = "\uFEFF" + [headers.map(escape).join(";"), ...rows].join("\r\n");
+    const dateStr = new Date().toISOString().slice(0, 10);
+    downloadBlob(csv, `Kapitalvermoegen-Export-${dateStr}.csv`, "text/csv;charset=utf-8;");
+    setSaveNote("CSV heruntergeladen");
+    setTimeout(() => setSaveNote(""), 2000);
+  };
+
+  const fileInputRef = useRef(null);
+  const triggerImport = () => fileInputRef.current && fileInputRef.current.click();
+
+  const importBackup = (e) => {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      try {
+        const parsed = JSON.parse(evt.target.result);
+        const arr = Array.isArray(parsed) ? parsed : parsed.positions;
+        if (!Array.isArray(arr) || arr.length === 0) throw new Error("leer");
+        const valid = arr.every((p) => p && typeof p.saldo === "number" && typeof p.label === "string");
+        if (!valid) throw new Error("Struktur");
+        if (!window.confirm(`${arr.length} Positionen aus dieser Datei importieren? Der aktuelle Stand im Tool wird überschrieben.`)) return;
+        setPositions(arr);
+        persist(arr);
+        setSaveNote("Backup importiert");
+      } catch (err) {
+        setSaveNote("Import fehlgeschlagen — ungültige Datei");
+      }
+      setTimeout(() => setSaveNote(""), 2500);
+    };
+    reader.readAsText(file);
+    e.target.value = "";
+  };
+
+  /* ---------------- derived aggregates ---------------- */
+  const total = useMemo(() => positions.reduce((s, p) => s + (Number(p.saldo) || 0), 0), [positions]);
+
+  const byClass = useMemo(() => {
+    const m = new Map();
+    positions.forEach((p) => m.set(p.assetClass, (m.get(p.assetClass) || 0) + p.saldo));
+    return Array.from(m, ([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value);
+  }, [positions]);
+
+  const byInst = useMemo(() => {
+    const m = new Map();
+    positions.forEach((p) => m.set(p.institut, (m.get(p.institut) || 0) + p.saldo));
+    return Array.from(m, ([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value);
+  }, [positions]);
+
+  const byOwner = useMemo(() => {
+    const m = new Map();
+    positions.forEach((p) => m.set(p.owner, (m.get(p.owner) || 0) + p.saldo));
+    return Array.from(m, ([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value);
+  }, [positions]);
+
+  const printPositions = useMemo(() => [...positions].sort((a, b) => b.saldo - a.saldo), [positions]);
+
+  const hhiInst = useMemo(() => {
+    return byInst.reduce((s, i) => s + Math.pow((i.value / total) * 100, 2), 0);
+  }, [byInst, total]);
+
+  const weightedRate = useMemo(() => {
+    const rated = positions.filter((p) => p.zins !== null && p.zins !== undefined);
+    const base = rated.reduce((s, p) => s + p.saldo, 0);
+    const wsum = rated.reduce((s, p) => s + p.saldo * p.zins, 0);
+    return { rate: base ? wsum / base : 0, base };
+  }, [positions]);
+
+  const totalInterest = useMemo(() => {
+    return positions.reduce((s, p) => {
       if (p.zinsen !== null && p.zinsen !== undefined) return s + p.zinsen;
       if (p.zins !== null && p.zins !== undefined) return s + p.saldo * p.zins;
       return s;
     }, 0);
+  }, [positions]);
 
-    var gold = positions.filter(function (p) { return p.assetClass === "Gold (physisch)"; });
-    var goldValue = gold.reduce(function (s, p) { return s + p.saldo; }, 0);
-    var goldAK = gold.reduce(function (s, p) { return s + (parseAK(p.label) || 0); }, 0);
+  const goldStats = useMemo(() => {
+    const gold = positions.filter((p) => p.assetClass === "Gold (physisch)");
+    const currentValue = gold.reduce((s, p) => s + p.saldo, 0);
+    const ak = gold.reduce((s, p) => s + (parseAK(p.label) || 0), 0);
+    return { currentValue, ak, gain: currentValue - ak, count: gold.length };
+  }, [positions]);
 
-    var withDate = positions.filter(function (p) { return p.faelligkeit; });
-    var years = [];
-    withDate.forEach(function (p) { var y = p.faelligkeit.slice(0, 4); if (years.indexOf(y) === -1) years.push(y); });
-    years.sort();
-    var maturityClasses = [];
-    withDate.forEach(function (p) { if (maturityClasses.indexOf(p.assetClass) === -1) maturityClasses.push(p.assetClass); });
-    var maturityTimeline = years.map(function (y) {
-      var row = { year: y };
-      maturityClasses.forEach(function (c) {
-        row[c] = withDate.filter(function (p) { return p.faelligkeit.slice(0, 4) === y && p.assetClass === c; })
-          .reduce(function (s, p) { return s + p.saldo; }, 0);
+  const maturityTimeline = useMemo(() => {
+    const withDate = positions.filter((p) => p.faelligkeit);
+    const years = Array.from(new Set(withDate.map((p) => yearOf(p.faelligkeit)))).sort();
+    const classes = Array.from(new Set(withDate.map((p) => p.assetClass)));
+    return years.map((y) => {
+      const row = { year: y };
+      classes.forEach((c) => {
+        row[c] = withDate
+          .filter((p) => yearOf(p.faelligkeit) === y && p.assetClass === c)
+          .reduce((s, p) => s + p.saldo, 0);
       });
       return row;
     });
+  }, [positions]);
 
-    return {
-      total: total, byClass: byClass, byInst: byInst, byOwner: byOwner, hhi: hhi,
-      weightedRate: weightedRate, weightedBase: base, totalInterest: totalInterest,
-      gold: { count: gold.length, value: goldValue, ak: goldAK, gain: goldValue - goldAK },
-      maturityTimeline: maturityTimeline, maturityClasses: maturityClasses
-    };
-  }
+  const maturityClasses = useMemo(() => {
+    const withDate = positions.filter((p) => p.faelligkeit);
+    return Array.from(new Set(withDate.map((p) => p.assetClass)));
+  }, [positions]);
 
-  function filteredSortedPositions() {
-    var rows = STATE.positions.filter(function (p) {
-      if (STATE.filterInst !== "Alle" && p.institut !== STATE.filterInst) return false;
-      if (STATE.filterClass !== "Alle" && p.assetClass !== STATE.filterClass) return false;
-      if (STATE.search) {
-        var hay = (p.label + " " + p.institut + " " + p.assetClass).toLowerCase();
-        if (hay.indexOf(STATE.search.toLowerCase()) === -1) return false;
-      }
+  const institutes = useMemo(() => ["Alle", ...Array.from(new Set(positions.map((p) => p.institut))).sort()], [positions]);
+  const assetClasses = useMemo(() => ["Alle", ...Array.from(new Set(positions.map((p) => p.assetClass))).sort()], [positions]);
+
+  const filteredRows = useMemo(() => {
+    let rows = positions.filter((p) => {
+      if (filterInst !== "Alle" && p.institut !== filterInst) return false;
+      if (filterClass !== "Alle" && p.assetClass !== filterClass) return false;
+      if (search && !`${p.label} ${p.institut} ${p.assetClass}`.toLowerCase().includes(search.toLowerCase())) return false;
       return true;
     });
-    rows.sort(function (a, b) {
-      var av = a[STATE.sortKey], bv = b[STATE.sortKey];
+    rows = [...rows].sort((a, b) => {
+      let av = a[sortKey], bv = b[sortKey];
       if (typeof av === "string" || typeof bv === "string") {
         av = av || ""; bv = bv || "";
-        return STATE.sortDir === "asc" ? av.localeCompare(bv) : bv.localeCompare(av);
+        return sortDir === "asc" ? av.localeCompare(bv) : bv.localeCompare(av);
       }
       av = av || 0; bv = bv || 0;
-      return STATE.sortDir === "asc" ? av - bv : bv - av;
+      return sortDir === "asc" ? av - bv : bv - av;
     });
     return rows;
+  }, [positions, filterInst, filterClass, search, sortKey, sortDir]);
+
+  const toggleSort = (key) => {
+    if (sortKey === key) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    else { setSortKey(key); setSortDir("desc"); }
+  };
+
+  const SortIcon = ({ column }) => (
+    <span style={{ marginLeft: 5, fontSize: 9, color: sortKey === column ? T.gold : T.textFaint, opacity: sortKey === column ? 1 : 0.5 }}>
+      {sortKey === column ? (sortDir === "asc" ? "▲" : "▼") : "↕"}
+    </span>
+  );
+
+  const maxInst = byInst.length ? byInst[0].value : 1;
+
+  if (!loaded) {
+    return <div style={{ background: T.bg, minHeight: 400, display: "flex", alignItems: "center", justifyContent: "center", color: T.textMuted, fontFamily: "'IBM Plex Sans', sans-serif" }}>Lade Daten…</div>;
   }
 
-  /* =============================================================
-     SVG CHARTS (dependency-free)
-  ============================================================= */
-  function donutSVG(data, total, size) {
-    if (!total || !data.length) {
-      return '<div style="width:' + size + 'px;height:' + size + 'px;display:flex;align-items:center;justify-content:center;color:' + T.textFaint + ';font-size:12px;border:1px dashed ' + T.border + ';border-radius:50%;">keine Daten</div>';
-    }
-    var cx = size / 2, cy = size / 2, r = size / 2 - 6, ir = r * 0.56;
-    var angle = -90, paths = [];
-    data.forEach(function (d) {
-      var frac = d.value / total;
-      var sweep = Math.min(frac * 360, 359.99);
-      var large = sweep > 180 ? 1 : 0;
-      var a1 = angle * Math.PI / 180, a2 = (angle + sweep) * Math.PI / 180;
-      var x1 = cx + r * Math.cos(a1), y1 = cy + r * Math.sin(a1);
-      var x2 = cx + r * Math.cos(a2), y2 = cy + r * Math.sin(a2);
-      var ix1 = cx + ir * Math.cos(a2), iy1 = cy + ir * Math.sin(a2);
-      var ix2 = cx + ir * Math.cos(a1), iy2 = cy + ir * Math.sin(a1);
-      var color = ASSET_COLORS[d.name] || T.textFaint;
-      paths.push('<path d="M ' + x1.toFixed(2) + ' ' + y1.toFixed(2) + ' A ' + r + ' ' + r + ' 0 ' + large + ' 1 ' +
-        x2.toFixed(2) + ' ' + y2.toFixed(2) + ' L ' + ix1.toFixed(2) + ' ' + iy1.toFixed(2) + ' A ' + ir + ' ' + ir +
-        ' 0 ' + large + ' 0 ' + ix2.toFixed(2) + ' ' + iy2.toFixed(2) + ' Z" fill="' + color + '" stroke="' + T.panel + '" stroke-width="2">' +
-        '<title>' + escapeHtml(d.name) + ': ' + eur0(d.value) + '</title></path>');
-      angle += sweep;
-    });
-    return '<svg viewBox="0 0 ' + size + ' ' + size + '" width="' + size + '" height="' + size + '">' + paths.join("") +
-      '<text x="' + cx + '" y="' + (cy - 6) + '" text-anchor="middle" font-family="Georgia, serif" font-size="16" font-weight="700" fill="' + T.textPrimary + '">' + eur0(total) + '</text>' +
-      '<text x="' + cx + '" y="' + (cy + 14) + '" text-anchor="middle" font-size="9" fill="' + T.textMuted + '">Gesamtvermögen</text></svg>';
-  }
+  return (
+    <div style={{ background: T.bg, minHeight: "100vh", color: T.textPrimary, fontFamily: "'IBM Plex Sans', sans-serif" }}>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=IBM+Plex+Sans:wght@400;500;600&display=swap');
+        * { box-sizing: border-box; }
+        ::selection { background: ${T.goldSoft}; color: #1A1D22; }
+        input[type=text]::placeholder { color: ${T.textFaint}; }
+        table { border-collapse: collapse; width: 100%; }
+        th, td { text-align: left; padding: 8px 10px; font-size: 12.5px; }
+        th { position: sticky; top: 0; background: ${T.panelAlt}; color: ${T.textMuted}; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; font-size: 10.5px; cursor: pointer; user-select: none; border-bottom: 1px solid ${T.border}; white-space: nowrap; }
+        th:hover { background: ${T.borderSoft}; }
+        tbody tr { border-bottom: 1px solid ${T.borderSoft}; }
+        tbody tr:hover { background: rgba(0,0,0,0.035); }
+        td input { background: transparent; border: 1px solid transparent; color: ${T.textPrimary}; font-family: 'IBM Plex Sans', sans-serif; font-size: 12.5px; width: 100%; padding: 3px 5px; border-radius: 2px; font-variant-numeric: tabular-nums; }
+        td input:hover { border-color: ${T.borderSoft}; }
+        td input:focus { border-color: ${T.goldSoft}; outline: none; background: rgba(201,162,74,0.06); }
+        .scrollbar::-webkit-scrollbar { width: 8px; height: 8px; }
+        .scrollbar::-webkit-scrollbar-thumb { background: ${T.border}; border-radius: 4px; }
+        .scrollbar::-webkit-scrollbar-track { background: transparent; }
+        button.pill { background: ${T.panelAlt}; border: 1px solid ${T.border}; color: ${T.textMuted}; font-size: 11.5px; padding: 5px 12px; border-radius: 20px; cursor: pointer; font-family: 'IBM Plex Sans', sans-serif; transition: all .15s; }
+        button.pill:hover { border-color: ${T.goldSoft}; color: ${T.textPrimary}; }
+        button.pill.active { background: ${T.goldSoft}; color: #14171C; border-color: ${T.goldSoft}; font-weight: 600; }
+        select.filter { background: ${T.panelAlt}; border: 1px solid ${T.border}; color: ${T.textPrimary}; font-size: 12px; padding: 6px 10px; border-radius: 3px; font-family: 'IBM Plex Sans', sans-serif; }
+        button.print-btn { background: transparent; border: 1px solid ${T.goldSoft}; color: ${T.gold}; font-size: 12px; padding: 8px 16px; border-radius: 3px; cursor: pointer; font-family: 'IBM Plex Sans', sans-serif; font-weight: 600; letter-spacing: 0.03em; display: inline-flex; align-items: center; gap: 8px; transition: all .15s; }
+        button.print-btn:hover { background: ${T.goldSoft}; color: #14171C; }
 
-  function maturityBarsSVG(rows, classes, width, height) {
-    if (!rows.length) {
-      return '<div style="height:' + height + 'px;display:flex;align-items:center;justify-content:center;color:' + T.textFaint + ';font-size:12px;">keine Fälligkeiten hinterlegt</div>';
-    }
-    var pad = { top: 10, right: 10, bottom: 24, left: 46 };
-    var innerW = width - pad.left - pad.right, innerH = height - pad.top - pad.bottom;
-    var maxVal = 1;
-    rows.forEach(function (r) {
-      var sum = classes.reduce(function (s, c) { return s + (r[c] || 0); }, 0);
-      if (sum > maxVal) maxVal = sum;
-    });
-    var gap = innerW / rows.length, barW = gap * 0.6;
-    var bars = [], ticks = [], xLabels = [];
-    [0, 0.5, 1].forEach(function (f) {
-      var val = maxVal * f, y = pad.top + innerH - f * innerH;
-      ticks.push('<line x1="' + pad.left + '" x2="' + (width - pad.right) + '" y1="' + y.toFixed(1) + '" y2="' + y.toFixed(1) + '" stroke="' + T.borderSoft + '" stroke-width="1"/>');
-      ticks.push('<text x="' + (pad.left - 6) + '" y="' + (y + 3).toFixed(1) + '" text-anchor="end" font-size="8" fill="' + T.textMuted + '">' + (val / 1000).toFixed(0) + 'k</text>');
-    });
-    rows.forEach(function (r, i) {
-      var yCum = 0;
-      var x = pad.left + i * gap + (gap - barW) / 2;
-      classes.forEach(function (c) {
-        var v = r[c] || 0;
-        if (!v) return;
-        var h = (v / maxVal) * innerH;
-        var y = pad.top + innerH - yCum - h;
-        var color = ASSET_COLORS[c] || T.textFaint;
-        bars.push('<rect x="' + x.toFixed(1) + '" y="' + y.toFixed(1) + '" width="' + barW.toFixed(1) + '" height="' + h.toFixed(1) + '" fill="' + color + '"><title>' + escapeHtml(c) + ' ' + r.year + ': ' + eur0(v) + '</title></rect>');
-        yCum += h;
-      });
-      xLabels.push('<text x="' + (x + barW / 2).toFixed(1) + '" y="' + (height - 6) + '" text-anchor="middle" font-size="8" fill="' + T.textMuted + '">' + r.year + '</text>');
-    });
-    return '<svg viewBox="0 0 ' + width + ' ' + height + '" width="100%" height="' + height + '">' + ticks.join("") + bars.join("") + xLabels.join("") + '</svg>';
-  }
+        .print-only { display: none; }
 
-  /* =============================================================
-     MUTATIONS
-  ============================================================= */
-  function updatePosition(id, field, value) {
-    var p = STATE.positions.find(function (p) { return p.id === id; });
-    if (!p) return;
-    p[field] = value;
-    persist();
-  }
-
-  function addPosition() {
-    var nextId = STATE.positions.reduce(function (m, p) { return Math.max(m, p.id); }, 0) + 1;
-    STATE.positions.push({
-      id: nextId, label: "Neue Position", nummer: "", institut: "Sparkasse",
-      assetClass: "Liquidität / Tagesgeld", owner: "Gemeinsam",
-      saldo: 0, zins: null, faelligkeit: null, zinsen: null
-    });
-    persist();
-    STATE.editMode = true; STATE.sortKey = "id"; STATE.sortDir = "desc";
-    STATE.filterInst = "Alle"; STATE.filterClass = "Alle"; STATE.search = "";
-    render();
-  }
-
-  function deletePosition(id) {
-    var p = STATE.positions.find(function (p) { return p.id === id; });
-    if (!p) return;
-    if (!confirm('"' + p.label + '" wirklich löschen?')) return;
-    STATE.positions = STATE.positions.filter(function (p) { return p.id !== id; });
-    persist();
-    render();
-  }
-
-  function resetData() {
-    if (!confirm("Alle Positionen löschen und auf leeren Ausgangszustand zurücksetzen?")) return;
-    STATE.positions = [];
-    persist();
-    render();
-  }
-
-  function loadDemo() {
-    if (STATE.positions.length && !confirm("Beispieldaten laden? Der aktuelle Stand im Tool wird überschrieben.")) return;
-    STATE.positions = JSON.parse(JSON.stringify(DEMO_POSITIONS));
-    persist();
-    render();
-  }
-
-  function downloadBlob(content, filename, mime) {
-    var blob = new Blob([content], { type: mime });
-    var url = URL.createObjectURL(blob);
-    var a = document.createElement("a");
-    a.href = url; a.download = filename;
-    document.body.appendChild(a); a.click(); a.remove();
-    URL.revokeObjectURL(url);
-  }
-
-  function exportBackup() {
-    var payload = { exportedAt: new Date().toISOString(), standDatum: STAND_DATUM, version: 1, positions: STATE.positions };
-    var dateStr = new Date().toISOString().slice(0, 10);
-    downloadBlob(JSON.stringify(payload, null, 2), "Kapitalvermoegen-Backup-" + dateStr + ".json", "application/json");
-    flashNote("Backup heruntergeladen");
-  }
-
-  function exportCSV() {
-    var headers = ["Bezeichnung", "Institut", "Anlageklasse", "Eigentümer", "Saldo", "Zins", "Fälligkeit", "Nummer"];
-    function esc(v) { return '"' + String(v === null || v === undefined ? "" : v).replace(/"/g, '""') + '"'; }
-    var rows = STATE.positions.map(function (p) {
-      return [p.label, p.institut, p.assetClass, p.owner,
-        String(p.saldo).replace(".", ","),
-        (p.zins !== null && p.zins !== undefined) ? String(p.zins).replace(".", ",") : "",
-        p.faelligkeit || "", p.nummer || ""].map(esc).join(";");
-    });
-    var csv = "\uFEFF" + [headers.map(esc).join(";")].concat(rows).join("\r\n");
-    var dateStr = new Date().toISOString().slice(0, 10);
-    downloadBlob(csv, "Kapitalvermoegen-Export-" + dateStr + ".csv", "text/csv;charset=utf-8;");
-    flashNote("CSV heruntergeladen");
-  }
-
-  function importBackup(file) {
-    var reader = new FileReader();
-    reader.onload = function (evt) {
-      try {
-        var parsed = JSON.parse(evt.target.result);
-        var arr = Array.isArray(parsed) ? parsed : parsed.positions;
-        if (!Array.isArray(arr) || arr.length === 0) throw new Error("leer");
-        var valid = arr.every(function (p) { return p && typeof p.saldo === "number" && typeof p.label === "string"; });
-        if (!valid) throw new Error("Struktur");
-        if (!confirm(arr.length + " Positionen aus dieser Datei importieren? Der aktuelle Stand im Tool wird überschrieben.")) return;
-        STATE.positions = arr;
-        persist();
-        render();
-      } catch (err) {
-        flashNote("Import fehlgeschlagen — ungültige Datei");
-      }
-    };
-    reader.readAsText(file);
-  }
-
-  /* =============================================================
-     FOCUS-PRESERVING RE-RENDER (for the live search field)
-  ============================================================= */
-  function withFocusPreserved(fn) {
-    var active = document.activeElement;
-    var id = active && active.id;
-    var selStart = active && typeof active.selectionStart === "number" ? active.selectionStart : null;
-    var selEnd = active && typeof active.selectionEnd === "number" ? active.selectionEnd : null;
-    fn();
-    if (id) {
-      var el = document.getElementById(id);
-      if (el) {
-        el.focus();
-        if (selStart !== null && el.setSelectionRange) {
-          try { el.setSelectionRange(selStart, selEnd); } catch (e) { /* ignore */ }
+        @media print {
+          @page { size: A4; margin: 16mm 14mm; }
+          .screen-only { display: none !important; }
+          .print-only { display: block !important; }
+          .po-table { width: 100%; border-collapse: collapse; }
+          .po-table th, .po-table td { padding: 6px 8px; font-size: 9.5px; text-align: left; }
+          .po-table thead { display: table-header-group; }
+          .po-table tr { page-break-inside: avoid; }
+          .po-section { page-break-before: always; }
         }
-      }
-    }
-  }
+      `}</style>
 
-  /* =============================================================
-     RENDER
-  ============================================================= */
-  function render() {
-    var agg = computeAll(STATE.positions);
-    var app = document.getElementById("app");
-    app.innerHTML = renderScreen(agg) + renderPrintOnly(agg);
-    wireEvents(agg);
-  }
+      {/* =================================================================
+          SCREEN DASHBOARD
+      ================================================================== */}
+      <div className="screen-only" style={{ maxWidth: 1180, margin: "0 auto", padding: "40px 28px 60px" }}>
 
-  function renderScreen(agg) {
-    var total = agg.total;
-    var hasData = STATE.positions.length > 0;
+        {/* ---------------- HERO ---------------- */}
+        <div style={{ marginBottom: 34 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", flexWrap: "wrap", gap: 18 }}>
+            <div>
+              <div style={{ fontSize: 12, color: T.textFaint, letterSpacing: "0.14em", textTransform: "uppercase", marginBottom: 8 }}>
+                Kapitalvermögen · Michaela &amp; Horst · Stand {STAND_DATUM}
+              </div>
+              <div style={{ fontFamily: "'Fraunces', serif", fontSize: 54, fontWeight: 500, lineHeight: 1, letterSpacing: "-0.01em", fontVariantNumeric: "tabular-nums" }}>
+                {eur0(total)}
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: 28, flexWrap: "wrap", alignItems: "flex-end" }}>
+              <StatChip label="Positionen" value={num(positions.length)} />
+              <StatChip label="Ø Verzinsung (verzinst)" value={pct(weightedRate.rate)} />
+              <StatChip label="Erw. Zinsertrag p.a." value={eur0(totalInterest)} tone={T.gold} />
+              <StatChip label="HHI Institute" value={hhiInst.toFixed(0)} tone={hhiInst > 2500 ? T.rust : T.textPrimary} />
+              <button className="print-btn" onClick={() => window.print()}>⎙ Bericht drucken</button>
+            </div>
+          </div>
+        </div>
 
-    var kpis =
-      '<div class="stat-label">Positionen</div><div class="stat-value">' + num(STATE.positions.length) + '</div>';
+        {/* ---------------- CONCENTRATION RIBBON ---------------- */}
+        <Panel
+          title="Konzentration nach Institut"
+          subtitle={`Herfindahl-Index ${hhiInst.toFixed(0)} von 10.000 — ${hhiInst > 2500 ? "hohe Konzentration, oberhalb gängiger Aufsichts-Schwellenwerte für Klumpenrisiken" : "moderate Streuung"}. Größtes Einzelrisiko: ${byInst[0].name} mit ${pct(byInst[0].value / total)}.`}
+          style={{ marginBottom: 20 }}
+        >
+          <div style={{ display: "flex", height: 34, borderRadius: 3, overflow: "hidden", border: `1px solid ${T.border}` }}>
+            {byInst.map((i) => (
+              <div key={i.name} title={`${i.name}: ${eur0(i.value)} (${pct(i.value / total)})`}
+                style={{ width: `${(i.value / total) * 100}%`, background: INST_COLORS[i.name] || T.textFaint, minWidth: i.value / total > 0.005 ? 2 : 0 }} />
+            ))}
+          </div>
+          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: T.textFaint, fontVariantNumeric: "tabular-nums" }}>
+            <span>0 %</span><span>25 %</span><span>50 %</span><span>75 %</span><span>100 %</span>
+          </div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "10px 22px", marginTop: 2 }}>
+            {byInst.map((i) => (
+              <div key={i.name} style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 12 }}>
+                <span style={{ width: 9, height: 9, borderRadius: 2, background: INST_COLORS[i.name] || T.textFaint, display: "inline-block" }} />
+                <span style={{ color: T.textMuted }}>{i.name}</span>
+                <span style={{ fontVariantNumeric: "tabular-nums" }}>{eur0(i.value)}</span>
+                <span style={{ color: T.textFaint }}>({pct(i.value / total)})</span>
+              </div>
+            ))}
+          </div>
+        </Panel>
 
-    var html = '<div class="screen-only"><div class="wrap">';
+        {/* ---------------- GRID: allocation + owner + gold ---------------- */}
+        <div style={{ display: "grid", gridTemplateColumns: "1.3fr 1fr", gap: 20, marginBottom: 20 }}>
+          <Panel title="Vermögen nach Anlageklasse">
+            <div style={{ display: "flex", gap: 20, alignItems: "center", flexWrap: "wrap" }}>
+              <div style={{ width: 200, height: 200, flexShrink: 0 }}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie data={byClass} dataKey="value" nameKey="name" innerRadius={58} outerRadius={92} paddingAngle={1.5} stroke={T.bg} strokeWidth={2}>
+                      {byClass.map((c) => <Cell key={c.name} fill={ASSET_COLORS[c.name] || T.textFaint} />)}
+                    </Pie>
+                    <Tooltip content={<CustomTooltip />} />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
+              <div style={{ flex: 1, minWidth: 220, display: "flex", flexDirection: "column", gap: 8 }}>
+                {byClass.map((c) => (
+                  <div key={c.name} style={{ display: "flex", alignItems: "center", gap: 9, fontSize: 12.5 }}>
+                    <span style={{ width: 9, height: 9, borderRadius: 2, background: ASSET_COLORS[c.name] || T.textFaint, flexShrink: 0 }} />
+                    <span style={{ color: T.textPrimary, flex: 1 }}>{c.name}</span>
+                    <span style={{ color: T.textMuted, fontVariantNumeric: "tabular-nums" }}>{pct(c.value / total)}</span>
+                    <span style={{ width: 90, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{eur0(c.value)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </Panel>
 
-    // HERO
-    html += '<div style="margin-bottom:28px;display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:18px;">' +
-      '<div><div style="font-size:12px;color:' + T.textFaint + ';letter-spacing:0.14em;text-transform:uppercase;margin-bottom:8px;">Kapitalvermögen · Michaela &amp; Horst · Stand ' + STAND_DATUM + '</div>' +
-      '<div class="serif" style="font-size:48px;font-weight:600;line-height:1;font-variant-numeric:tabular-nums;">' + eur0(total) + '</div></div>' +
-      '<div style="display:flex;gap:24px;flex-wrap:wrap;align-items:flex-end;">' +
-      statChip("Positionen", num(STATE.positions.length)) +
-      statChip("Ø Verzinsung (verzinst)", pct(agg.weightedRate)) +
-      statChip("Erw. Zinsertrag p.a.", eur0(agg.totalInterest), T.gold) +
-      statChip("HHI Institute", agg.hhi ? agg.hhi.toFixed(0) : "–", agg.hhi > 2500 ? T.rust : T.textPrimary) +
-      '<button class="print-btn" id="printBtn">⎙ Bericht drucken</button>' +
-      '</div></div>';
+          <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+            <Panel title="Zuordnung Eigentümer">
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                {byOwner.map((o) => (
+                  <div key={o.name}>
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, marginBottom: 4 }}>
+                      <span>{o.name}</span>
+                      <span style={{ fontVariantNumeric: "tabular-nums", color: T.textMuted }}>{eur0(o.value)} · {pct(o.value / total)}</span>
+                    </div>
+                    <div style={{ height: 6, borderRadius: 3, background: T.panelAlt, overflow: "hidden" }}>
+                      <div style={{ width: `${(o.value / total) * 100}%`, height: "100%", background: T.goldSoft }} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </Panel>
 
-    if (!hasData) {
-      html += '<div class="panel"><div class="empty-state">' +
-        '<h3>Noch keine Positionen erfasst</h3>' +
-        '<p>Importiere ein zuvor exportiertes Backup (JSON) oder lade Beispieldaten, um die Ansicht zu testen.</p>' +
-        '<div style="display:flex;gap:10px;justify-content:center;margin-top:14px;flex-wrap:wrap;">' +
-        '<button class="pill" id="importBtnEmpty">⬆ Backup importieren</button>' +
-        '<button class="pill" id="demoBtn">Beispieldaten laden</button>' +
-        '</div></div></div></div></div>';
-      return html;
-    }
+            <Panel title="Gold — physische Reserve" subtitle={`${goldStats.count} Barren à 250 g · Bewertung zum aktuellen Kurs`}>
+              <div style={{ display: "flex", justifyContent: "space-between" }}>
+                <div>
+                  <div style={{ fontSize: 11, color: T.textFaint, textTransform: "uppercase", letterSpacing: "0.06em" }}>Aktueller Wert</div>
+                  <div style={{ fontFamily: "'Fraunces', serif", fontSize: 20, color: T.gold, fontVariantNumeric: "tabular-nums" }}>{eur0(goldStats.currentValue)}</div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 11, color: T.textFaint, textTransform: "uppercase", letterSpacing: "0.06em" }}>Anschaffungskosten</div>
+                  <div style={{ fontSize: 16, color: T.textMuted, fontVariantNumeric: "tabular-nums" }}>{eur0(goldStats.ak)}</div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 11, color: T.textFaint, textTransform: "uppercase", letterSpacing: "0.06em" }}>Stille Reserve</div>
+                  <div style={{ fontSize: 16, color: T.sage, fontVariantNumeric: "tabular-nums" }}>+{eur0(goldStats.gain)}</div>
+                </div>
+              </div>
+            </Panel>
+          </div>
+        </div>
 
-    // CONCENTRATION RIBBON
-    html += '<div class="panel"><div class="panel-title">Konzentration nach Institut</div>' +
-      '<div class="panel-subtitle">Herfindahl-Index ' + agg.hhi.toFixed(0) + ' von 10.000 — ' +
-      (agg.hhi > 2500 ? "hohe Konzentration, oberhalb gängiger Aufsichts-Schwellenwerte für Klumpenrisiken" : "moderate Streuung") +
-      '. Größtes Einzelrisiko: ' + escapeHtml(agg.byInst[0].name) + ' mit ' + pct(agg.byInst[0].value / total) + '.</div>' +
-      '<div style="display:flex;height:32px;border-radius:3px;overflow:hidden;border:1px solid ' + T.border + ';">' +
-      agg.byInst.map(function (i) {
-        var w = (i.value / total) * 100;
-        return '<div title="' + escapeHtml(i.name) + ': ' + eur0(i.value) + ' (' + pct(i.value / total) + ')" style="width:' + w + '%;background:' + (INST_COLORS[i.name] || T.textFaint) + ';min-width:' + (w > 0.5 ? 2 : 0) + 'px;"></div>';
-      }).join("") + '</div>' +
-      '<div style="display:flex;flex-wrap:wrap;gap:9px 20px;margin-top:2px;">' +
-      agg.byInst.map(function (i) {
-        return '<div class="legend-row"><span class="swatch" style="background:' + (INST_COLORS[i.name] || T.textFaint) + ';"></span>' +
-          '<span style="color:' + T.textMuted + ';">' + escapeHtml(i.name) + '</span>' +
-          '<span style="font-variant-numeric:tabular-nums;">' + eur0(i.value) + '</span>' +
-          '<span style="color:' + T.textFaint + ';">(' + pct(i.value / total) + ')</span></div>';
-      }).join("") + '</div></div>';
+        {/* ---------------- MATURITY TIMELINE ---------------- */}
+        <Panel title="Fälligkeiten im Zeitverlauf" subtitle="Nur Positionen mit festem Fälligkeitsdatum (Festgeld, Anleihen, Versicherungen)" style={{ marginBottom: 20 }}>
+          <div style={{ width: "100%", height: 260 }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={maturityTimeline} margin={{ top: 4, right: 8, left: -12, bottom: 0 }}>
+                <CartesianGrid stroke={T.borderSoft} vertical={false} />
+                <XAxis dataKey="year" stroke={T.textFaint} fontSize={11.5} tickLine={false} axisLine={{ stroke: T.border }} />
+                <YAxis stroke={T.textFaint} fontSize={11} tickLine={false} axisLine={false} tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`} />
+                <Tooltip content={<CustomTooltip />} />
+                {maturityClasses.map((c) => (
+                  <Bar key={c} dataKey={c} stackId="a" fill={ASSET_COLORS[c] || T.textFaint} name={c} radius={[0, 0, 0, 0]} />
+                ))}
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </Panel>
 
-    // GRID: allocation + owner + gold
-    html += '<div style="display:grid;grid-template-columns:1.3fr 1fr;gap:18px;">';
-    html += '<div class="panel"><div class="panel-title">Vermögen nach Anlageklasse</div>' +
-      '<div style="display:flex;gap:18px;align-items:center;flex-wrap:wrap;">' +
-      '<div style="flex-shrink:0;">' + donutSVG(agg.byClass, total, 190) + '</div>' +
-      '<div style="flex:1;min-width:220px;display:flex;flex-direction:column;gap:7px;">' +
-      agg.byClass.map(function (c) {
-        return '<div class="legend-row"><span class="swatch" style="background:' + (ASSET_COLORS[c.name] || T.textFaint) + ';"></span>' +
-          '<span style="flex:1;">' + escapeHtml(c.name) + '</span>' +
-          '<span style="color:' + T.textMuted + ';font-variant-numeric:tabular-nums;">' + pct(c.value / total) + '</span>' +
-          '<span style="width:90px;text-align:right;font-variant-numeric:tabular-nums;">' + eur0(c.value) + '</span></div>';
-      }).join("") + '</div></div></div>';
+        {/* ---------------- POSITIONS TABLE ---------------- */}
+        <Panel title="Einzelpositionen" subtitle={`${filteredRows.length} von ${positions.length} Positionen`}>
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", marginBottom: 4 }}>
+            <input
+              type="text" placeholder="Suche…" value={search} onChange={(e) => setSearch(e.target.value)}
+              style={{ background: T.panelAlt, border: `1px solid ${T.border}`, color: T.textPrimary, padding: "7px 11px", borderRadius: 3, fontSize: 12.5, minWidth: 180, fontFamily: "'IBM Plex Sans', sans-serif" }}
+            />
+            <select className="filter" value={filterInst} onChange={(e) => setFilterInst(e.target.value)}>
+              {institutes.map((i) => <option key={i} value={i}>{i}</option>)}
+            </select>
+            <select className="filter" value={filterClass} onChange={(e) => setFilterClass(e.target.value)}>
+              {assetClasses.map((c) => <option key={c} value={c}>{c}</option>)}
+            </select>
+            <div style={{ flex: 1 }} />
+            {editMode && <button className="pill" onClick={addPosition}>+ Neue Position</button>}
+            <button className={`pill ${editMode ? "active" : ""}`} onClick={() => setEditMode((e) => !e)}>
+              {editMode ? "Bearbeitung beenden" : "Bearbeiten"}
+            </button>
+            <button className="pill" onClick={resetData}>Zurücksetzen</button>
+            {saveNote && <span style={{ fontSize: 11, color: T.textFaint }}>{saveNote}</span>}
+          </div>
 
-    html += '<div style="display:flex;flex-direction:column;gap:18px;">';
-    html += '<div class="panel"><div class="panel-title">Zuordnung Eigentümer</div>' +
-      agg.byOwner.map(function (o) {
-        var w = (o.value / total) * 100;
-        return '<div><div style="display:flex;justify-content:space-between;font-size:12.5px;margin-bottom:4px;">' +
-          '<span>' + escapeHtml(o.name) + '</span><span style="color:' + T.textMuted + ';font-variant-numeric:tabular-nums;">' + eur0(o.value) + ' · ' + pct(o.value / total) + '</span></div>' +
-          '<div style="height:6px;border-radius:3px;background:' + T.panelAlt + ';overflow:hidden;"><div style="width:' + w + '%;height:100%;background:' + T.goldSoft + ';"></div></div></div>';
-      }).join("") + '</div>';
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", marginBottom: 4, paddingTop: 6, borderTop: `1px solid ${T.borderSoft}` }}>
+            <span style={{ fontSize: 11, color: T.textFaint, textTransform: "uppercase", letterSpacing: "0.06em" }}>Datensicherung</span>
+            <button className="pill" onClick={exportBackup}>⬇ Backup exportieren (JSON)</button>
+            <button className="pill" onClick={triggerImport}>⬆ Backup importieren</button>
+            <input ref={fileInputRef} type="file" accept="application/json,.json" onChange={importBackup} style={{ display: "none" }} />
+            <button className="pill" onClick={exportCSV}>⬇ Als CSV (Excel)</button>
+          </div>
 
-    if (agg.gold.count) {
-      html += '<div class="panel"><div class="panel-title">Gold — physische Reserve</div>' +
-        '<div class="panel-subtitle">' + agg.gold.count + ' Barren à 250 g · Bewertung zum aktuellen Kurs</div>' +
-        '<div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:10px;">' +
-        '<div><div class="stat-label">Aktueller Wert</div><div class="serif" style="font-size:19px;color:' + T.gold + ';font-variant-numeric:tabular-nums;">' + eur0(agg.gold.value) + '</div></div>' +
-        '<div><div class="stat-label">Anschaffungskosten</div><div style="font-size:15px;color:' + T.textMuted + ';font-variant-numeric:tabular-nums;">' + eur0(agg.gold.ak) + '</div></div>' +
-        '<div><div class="stat-label">Stille Reserve</div><div style="font-size:15px;color:' + T.sage + ';font-variant-numeric:tabular-nums;">+' + eur0(agg.gold.gain) + '</div></div>' +
-        '</div></div>';
-    }
-    html += '</div></div>'; // end grid
+          <div className="scrollbar" style={{ maxHeight: 460, overflowY: "auto", border: `1px solid ${T.border}`, borderRadius: 3 }}>
+            <table>
+              <thead>
+                <tr>
+                  <th onClick={() => toggleSort("label")} style={{ color: sortKey === "label" ? T.gold : undefined }}>Bezeichnung<SortIcon column="label" /></th>
+                  <th onClick={() => toggleSort("nummer")} style={{ color: sortKey === "nummer" ? T.gold : undefined }}>Nummer<SortIcon column="nummer" /></th>
+                  <th onClick={() => toggleSort("institut")} style={{ color: sortKey === "institut" ? T.gold : undefined }}>Institut<SortIcon column="institut" /></th>
+                  <th onClick={() => toggleSort("assetClass")} style={{ color: sortKey === "assetClass" ? T.gold : undefined }}>Anlageklasse<SortIcon column="assetClass" /></th>
+                  <th onClick={() => toggleSort("owner")} style={{ color: sortKey === "owner" ? T.gold : undefined }}>Eigentümer<SortIcon column="owner" /></th>
+                  <th onClick={() => toggleSort("saldo")} style={{ textAlign: "right", color: sortKey === "saldo" ? T.gold : undefined }}>Saldo<SortIcon column="saldo" /></th>
+                  <th onClick={() => toggleSort("zins")} style={{ textAlign: "right", color: sortKey === "zins" ? T.gold : undefined }}>Zins %<SortIcon column="zins" /></th>
+                  <th onClick={() => toggleSort("faelligkeit")} style={{ color: sortKey === "faelligkeit" ? T.gold : undefined }}>Fälligkeit<SortIcon column="faelligkeit" /></th>
+                  {editMode && <th style={{ cursor: "default" }}></th>}
+                </tr>
+              </thead>
+              <tbody>
+                {filteredRows.map((p) => (
+                  <tr key={p.id}>
+                    <td style={{ maxWidth: 220 }}>
+                      {editMode ? (
+                        <input type="text" value={p.label} onChange={(e) => updatePosition(p.id, "label", e.target.value)} />
+                      ) : p.label}
+                    </td>
+                    <td style={{ color: T.textMuted, fontVariantNumeric: "tabular-nums", maxWidth: 150 }}>
+                      {editMode ? (
+                        <input type="text" value={p.nummer ?? ""} onChange={(e) => updatePosition(p.id, "nummer", e.target.value)} />
+                      ) : (p.nummer || "–")}
+                    </td>
+                    <td>
+                      {editMode ? (
+                        <select className="filter" style={{ width: "100%", padding: "3px 5px", fontSize: 12.5 }} value={p.institut} onChange={(e) => updatePosition(p.id, "institut", e.target.value)}>
+                          {INSTITUTE_OPTIONS.map((i) => <option key={i} value={i}>{i}</option>)}
+                        </select>
+                      ) : (
+                        <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                          <span style={{ width: 7, height: 7, borderRadius: 2, background: INST_COLORS[p.institut] || T.textFaint, display: "inline-block" }} />
+                          {p.institut}
+                        </span>
+                      )}
+                    </td>
+                    <td style={{ color: T.textMuted }}>
+                      {editMode ? (
+                        <select className="filter" style={{ width: "100%", padding: "3px 5px", fontSize: 12.5 }} value={p.assetClass} onChange={(e) => updatePosition(p.id, "assetClass", e.target.value)}>
+                          {ASSET_CLASS_OPTIONS.map((c) => <option key={c} value={c}>{c}</option>)}
+                        </select>
+                      ) : p.assetClass}
+                    </td>
+                    <td style={{ color: T.textMuted }}>
+                      {editMode ? (
+                        <select className="filter" style={{ width: "100%", padding: "3px 5px", fontSize: 12.5 }} value={p.owner} onChange={(e) => updatePosition(p.id, "owner", e.target.value)}>
+                          {OWNER_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
+                        </select>
+                      ) : p.owner}
+                    </td>
+                    <td style={{ textAlign: "right", fontVariantNumeric: "tabular-nums", fontWeight: 500 }}>
+                      {editMode ? (
+                        <input type="number" step="0.01" value={p.saldo} style={{ textAlign: "right" }}
+                          onChange={(e) => updatePosition(p.id, "saldo", parseFloat(e.target.value) || 0)} />
+                      ) : eur(p.saldo, 2)}
+                    </td>
+                    <td style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
+                      {editMode ? (
+                        <input type="number" step="0.001" value={p.zins ?? ""} style={{ textAlign: "right" }}
+                          onChange={(e) => updatePosition(p.id, "zins", e.target.value === "" ? null : parseFloat(e.target.value))} />
+                      ) : (p.zins !== null && p.zins !== undefined ? pct(p.zins, 2) : "–")}
+                    </td>
+                    <td style={{ color: T.textMuted }}>
+                      {editMode ? (
+                        <input type="date" value={p.faelligkeit ?? ""} onChange={(e) => updatePosition(p.id, "faelligkeit", e.target.value || null)} />
+                      ) : (p.faelligkeit ? p.faelligkeit.split("-").reverse().join(".") : "–")}
+                    </td>
+                    {editMode && (
+                      <td style={{ textAlign: "center" }}>
+                        <button
+                          onClick={() => { if (window.confirm(`„${p.label}" wirklich löschen?`)) deletePosition(p.id); }}
+                          title="Position löschen"
+                          style={{ background: "transparent", border: `1px solid ${T.border}`, color: T.rust, borderRadius: 3, width: 24, height: 24, cursor: "pointer", fontSize: 13, lineHeight: 1 }}
+                        >×</button>
+                      </td>
+                    )}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Panel>
 
-    // MATURITY
-    html += '<div class="panel"><div class="panel-title">Fälligkeiten im Zeitverlauf</div>' +
-      '<div class="panel-subtitle">Nur Positionen mit festem Fälligkeitsdatum (Festgeld, Anleihen, Versicherungen)</div>' +
-      maturityBarsSVG(agg.maturityTimeline, agg.maturityClasses, 900, 240) +
-      '<div style="display:flex;flex-wrap:wrap;gap:8px 18px;margin-top:2px;">' +
-      agg.maturityClasses.map(function (c) {
-        return '<div class="legend-row"><span class="swatch" style="background:' + (ASSET_COLORS[c] || T.textFaint) + ';"></span><span style="color:' + T.textMuted + ';">' + escapeHtml(c) + '</span></div>';
-      }).join("") + '</div></div>';
+        <div style={{ marginTop: 24, fontSize: 11, color: T.textFaint, lineHeight: 1.6 }}>
+          Hinweise: "Nicht zugeordnet" bezeichnet Positionen ohne im Datenblatt vermerktes depotführendes Institut.
+          Zinserträge sind kalkulatorisch (Saldo × Zinssatz p.a.) und berücksichtigen keine Steuern oder Vorfälligkeitsentgelte.
+          Der HHI (Herfindahl-Hirschman-Index) misst die Konzentration über die depotführenden Institute; Werte über 2.500 gelten
+          gemeinhin als hochkonzentriert. Änderungen im Bearbeitungsmodus werden lokal in diesem Tool gespeichert und ersetzen
+          nicht die Original-Exceldatei.
+        </div>
+      </div>
 
-    // TABLE
-    var institutes = ["Alle"].concat(uniqueSorted(STATE.positions.map(function (p) { return p.institut; })));
-    var assetClasses = ["Alle"].concat(uniqueSorted(STATE.positions.map(function (p) { return p.assetClass; })));
-    var rows = filteredSortedPositions();
+      {/* =================================================================
+          PRINT-ONLY REPORT
+          Light, paper-friendly layout — rendered only via window.print()
+      ================================================================== */}
+      <div className="print-only" style={{ background: "#FFFFFF", color: "#1F2733", fontFamily: "Arial, sans-serif", fontSize: 11 }}>
+        {(() => {
+          const PI = "#1F2733", PM = "#6B7280", PG = "#B8935A", PL = "#D9D5CC", PP = "#F6F4EF";
+          const cell = { padding: "5px 7px" };
+          const th = { ...cell, background: PI, color: "#fff", fontWeight: 700, fontSize: 9, textTransform: "uppercase", letterSpacing: "0.03em" };
+          const tdAlt = (i) => ({ ...cell, background: i % 2 ? PP : "#fff" });
+          return (
+            <>
+              {/* Title */}
+              <div style={{ fontSize: 11, color: PM, fontWeight: 700, letterSpacing: "0.12em" }}>KAPITALVERMÖGEN</div>
+              <div style={{ fontFamily: "'Fraunces', Georgia, serif", fontSize: 34, fontWeight: 600, color: PI, margin: "4px 0 6px" }}>Vermögensübersicht</div>
+              <div style={{ borderBottom: `2px solid ${PG}`, paddingBottom: 10, marginBottom: 16, fontSize: 13, color: PM }}>
+                Michaela &amp; Horst · Stand {STAND_DATUM}
+              </div>
 
-    html += '<div class="panel"><div class="panel-title">Einzelpositionen</div>' +
-      '<div class="panel-subtitle">' + rows.length + ' von ' + STATE.positions.length + ' Positionen</div>';
+              {/* KPI row */}
+              <table style={{ width: "100%", borderCollapse: "collapse", marginBottom: 16 }}><tbody><tr>
+                {[
+                  ["Gesamtvermögen", eur0(total), PI],
+                  ["Positionen", num(positions.length), PI],
+                  ["Ø Verzinsung", pct(weightedRate.rate, 2), PI],
+                  ["Zinsertrag p.a.", eur0(totalInterest), PG],
+                ].map(([label, val, color]) => (
+                  <td key={label} style={{ background: PP, padding: "10px 14px", width: "25%" }}>
+                    <div style={{ fontSize: 8.5, color: PM, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>{label}</div>
+                    <div style={{ fontFamily: "'Fraunces', Georgia, serif", fontSize: 17, fontWeight: 700, color }}>{val}</div>
+                  </td>
+                ))}
+              </tr></tbody></table>
 
-    html += '<div class="toolbar">' +
-      '<input class="search" type="text" id="searchInput" placeholder="Suche…" value="' + escapeHtml(STATE.search) + '">' +
-      '<select class="filter" id="filterInst">' + institutes.map(function (i) { return '<option' + (i === STATE.filterInst ? " selected" : "") + '>' + escapeHtml(i) + '</option>'; }).join("") + '</select>' +
-      '<select class="filter" id="filterClass">' + assetClasses.map(function (c) { return '<option' + (c === STATE.filterClass ? " selected" : "") + '>' + escapeHtml(c) + '</option>'; }).join("") + '</select>' +
-      '<div style="flex:1;"></div>' +
-      (STATE.editMode ? '<button class="pill" id="addBtn">+ Neue Position</button>' : "") +
-      '<button class="pill' + (STATE.editMode ? " active" : "") + '" id="editToggle">' + (STATE.editMode ? "Bearbeitung beenden" : "Bearbeiten") + '</button>' +
-      '<button class="pill" id="resetBtn">Zurücksetzen</button>' +
-      '<span id="saveNote" style="font-size:11px;color:' + T.textFaint + ';">' + STATE.saveNote + '</span>' +
-      '</div>';
+              <p style={{ lineHeight: 1.6, marginBottom: 16 }}>
+                Zum Stichtag {STAND_DATUM} beläuft sich das gemeinsame Kapitalvermögen auf {eur0(total)}, verteilt über {positions.length} Einzelpositionen
+                bei {byInst.length} depotführenden Instituten. Von den verzinslich geführten Positionen (Basis {eur0(weightedRate.base)}) resultiert eine
+                gewichtete Durchschnittsverzinsung von {pct(weightedRate.rate, 2)}, was einem kalkulatorischen Zinsertrag von rund {eur0(totalInterest)} pro Jahr entspricht.
+              </p>
 
-    html += '<div class="toolbar toolbar-sep">' +
-      '<span style="font-size:11px;color:' + T.textFaint + ';text-transform:uppercase;letter-spacing:0.06em;">Datensicherung</span>' +
-      '<button class="pill" id="exportBackupBtn">⬇ Backup exportieren (JSON)</button>' +
-      '<button class="pill" id="importBackupBtn">⬆ Backup importieren</button>' +
-      '<button class="pill" id="exportCsvBtn">⬇ Als CSV (Excel)</button>' +
-      '</div>';
+              {/* Allocation */}
+              <h3 style={{ fontFamily: "'Fraunces', Georgia, serif", fontSize: 17, borderBottom: `1px solid ${PG}`, paddingBottom: 6, marginTop: 20 }}>Allokation nach Anlageklasse</h3>
+              <table className="po-table" style={{ marginTop: 8, marginBottom: 18 }}>
+                <thead><tr><th style={th}>Anlageklasse</th><th style={{ ...th, textAlign: "right" }}>Anteil</th><th style={{ ...th, textAlign: "right" }}>Wert</th></tr></thead>
+                <tbody>{byClass.map((c, i) => (
+                  <tr key={c.name}><td style={tdAlt(i)}>{c.name}</td><td style={{ ...tdAlt(i), textAlign: "right" }}>{pct(c.value / total)}</td><td style={{ ...tdAlt(i), textAlign: "right" }}>{eur0(c.value)}</td></tr>
+                ))}</tbody>
+              </table>
 
-    html += '<div class="scrollbox"><table><thead><tr>' +
-      sortTh("label", "Bezeichnung") + sortTh("nummer", "Nummer") + sortTh("institut", "Institut") +
-      sortTh("assetClass", "Anlageklasse") + sortTh("owner", "Eigentümer") +
-      sortTh("saldo", "Saldo", "right") + sortTh("zins", "Zins %", "right") + sortTh("faelligkeit", "Fälligkeit") +
-      (STATE.editMode ? '<th style="cursor:default;"></th>' : "") +
-      '</tr></thead><tbody>';
+              {/* Concentration */}
+              <h3 style={{ fontFamily: "'Fraunces', Georgia, serif", fontSize: 17, borderBottom: `1px solid ${PG}`, paddingBottom: 6 }}>Konzentration nach Institut</h3>
+              <p style={{ lineHeight: 1.6, margin: "8px 0 12px" }}>
+                Der Herfindahl-Hirschman-Index (HHI) über die depotführenden Institute liegt bei {hhiInst.toFixed(0)} von 10.000 Punkten.{" "}
+                {hhiInst > 2500 ? "Das entspricht einer hohen Konzentration oberhalb gängiger aufsichtlicher Schwellenwerte für Klumpenrisiken." : `Das entspricht einer moderaten Streuung, liegt aber über einer Gleichverteilung auf ${byInst.length} Institute (HHI ≈ ${(10000 / byInst.length).toFixed(0)}).`}{" "}
+                Größte Einzelposition ist {byInst[0].name} mit {eur0(byInst[0].value)} ({pct(byInst[0].value / total)}), gefolgt von {byInst[1].name} mit {pct(byInst[1].value / total)}.
+                Zusammen vereinen beide {pct((byInst[0].value + byInst[1].value) / total)} des Gesamtvermögens.
+              </p>
+              <table className="po-table" style={{ marginBottom: 18 }}>
+                <thead><tr><th style={th}>Institut</th><th style={{ ...th, textAlign: "right" }}>Anteil</th><th style={{ ...th, textAlign: "right" }}>Wert</th></tr></thead>
+                <tbody>{byInst.map((c, i) => (
+                  <tr key={c.name}><td style={tdAlt(i)}>{c.name}</td><td style={{ ...tdAlt(i), textAlign: "right" }}>{pct(c.value / total)}</td><td style={{ ...tdAlt(i), textAlign: "right" }}>{eur0(c.value)}</td></tr>
+                ))}</tbody>
+              </table>
 
-    rows.forEach(function (p) {
-      html += '<tr>' +
-        '<td style="max-width:220px;">' + (STATE.editMode ? '<input data-id="' + p.id + '" data-field="label" value="' + escapeHtml(p.label) + '">' : escapeHtml(p.label)) + '</td>' +
-        '<td style="color:' + T.textMuted + ';">' + (STATE.editMode ? '<input data-id="' + p.id + '" data-field="nummer" value="' + escapeHtml(p.nummer || "") + '">' : escapeHtml(p.nummer || "–")) + '</td>' +
-        '<td><span class="legend-row"><span class="swatch" style="background:' + (INST_COLORS[p.institut] || T.textFaint) + ';"></span>' + escapeHtml(p.institut) + '</span></td>' +
-        '<td style="color:' + T.textMuted + ';">' + escapeHtml(p.assetClass) + '</td>' +
-        '<td style="color:' + T.textMuted + ';">' + escapeHtml(p.owner) + '</td>' +
-        '<td style="text-align:right;font-variant-numeric:tabular-nums;font-weight:500;">' +
-        (STATE.editMode ? '<input type="number" step="0.01" data-id="' + p.id + '" data-field="saldo" value="' + p.saldo + '" style="text-align:right;">' : eur(p.saldo, 2)) + '</td>' +
-        '<td style="text-align:right;font-variant-numeric:tabular-nums;">' +
-        (STATE.editMode ? '<input type="number" step="0.001" data-id="' + p.id + '" data-field="zins" value="' + (p.zins === null || p.zins === undefined ? "" : p.zins) + '" style="text-align:right;">' : ((p.zins !== null && p.zins !== undefined) ? pct(p.zins, 2) : "–")) + '</td>' +
-        '<td style="color:' + T.textMuted + ';">' + dateDe(p.faelligkeit) + '</td>' +
-        (STATE.editMode ? '<td><button data-del="' + p.id + '" style="background:transparent;border:1px solid ' + T.border + ';color:' + T.rust + ';border-radius:3px;width:24px;height:24px;cursor:pointer;font-size:13px;line-height:1;">×</button></td>' : "") +
-        '</tr>';
-    });
-    html += '</tbody></table></div></div>';
+              {/* Owner */}
+              <h3 style={{ fontFamily: "'Fraunces', Georgia, serif", fontSize: 17, borderBottom: `1px solid ${PG}`, paddingBottom: 6 }}>Zuordnung nach Eigentümer</h3>
+              <table className="po-table" style={{ marginTop: 8, marginBottom: 18 }}>
+                <thead><tr><th style={th}>Eigentümer</th><th style={{ ...th, textAlign: "right" }}>Anteil</th><th style={{ ...th, textAlign: "right" }}>Wert</th></tr></thead>
+                <tbody>{byOwner.map((c, i) => (
+                  <tr key={c.name}><td style={tdAlt(i)}>{c.name}</td><td style={{ ...tdAlt(i), textAlign: "right" }}>{pct(c.value / total)}</td><td style={{ ...tdAlt(i), textAlign: "right" }}>{eur0(c.value)}</td></tr>
+                ))}</tbody>
+              </table>
 
-    html += '<div style="margin-top:20px;font-size:11px;color:' + T.textFaint + ';line-height:1.6;">' +
-      'Hinweise: „Nicht zugeordnet" bezeichnet Positionen ohne im Datenblatt vermerktes depotführendes Institut. ' +
-      'Zinserträge sind kalkulatorisch (Saldo × Zinssatz p.a.) und berücksichtigen keine Steuern oder Vorfälligkeitsentgelte. ' +
-      'Der HHI (Herfindahl-Hirschman-Index) misst die Konzentration über die depotführenden Institute; Werte über 2.500 gelten ' +
-      'gemeinhin als hochkonzentriert. Alle Daten werden ausschließlich lokal in diesem Browser gespeichert (localStorage).' +
-      '</div>';
+              {/* Maturities */}
+              <div className="po-section">
+                <h3 style={{ fontFamily: "'Fraunces', Georgia, serif", fontSize: 17, borderBottom: `1px solid ${PG}`, paddingBottom: 6 }}>Fälligkeiten im Zeitverlauf</h3>
+                <p style={{ fontSize: 9.5, color: PM, fontStyle: "italic", margin: "8px 0 12px" }}>
+                  Nur Positionen mit im Datenblatt vermerktem Fälligkeitsdatum (Festgeld, Anleihen, Versicherungen mit Ablauftermin).
+                </p>
+                <table className="po-table" style={{ marginBottom: 18 }}>
+                  <thead><tr><th style={th}>Jahr</th>{maturityClasses.map((c) => <th key={c} style={{ ...th, textAlign: "right" }}>{c}</th>)}<th style={{ ...th, textAlign: "right" }}>Summe</th></tr></thead>
+                  <tbody>{maturityTimeline.map((row, i) => {
+                    const sum = maturityClasses.reduce((s, c) => s + (row[c] || 0), 0);
+                    return (
+                      <tr key={row.year}>
+                        <td style={tdAlt(i)}>{row.year}</td>
+                        {maturityClasses.map((c) => <td key={c} style={{ ...tdAlt(i), textAlign: "right" }}>{row[c] ? eur0(row[c]) : "–"}</td>)}
+                        <td style={{ ...tdAlt(i), textAlign: "right", fontWeight: 700 }}>{eur0(sum)}</td>
+                      </tr>
+                    );
+                  })}</tbody>
+                </table>
 
-    html += '</div></div>'; // wrap, screen-only
-    return html;
-  }
+                {/* Gold */}
+                <h3 style={{ fontFamily: "'Fraunces', Georgia, serif", fontSize: 17, borderBottom: `1px solid ${PG}`, paddingBottom: 6 }}>Sonderposition: physisches Gold</h3>
+                <p style={{ lineHeight: 1.6, margin: "8px 0 18px" }}>
+                  {goldStats.count} Barren zu je 250 g werden zum aktuellen Kurs mit insgesamt {eur0(goldStats.currentValue)} bewertet. Den historischen
+                  Anschaffungskosten von {eur0(goldStats.ak)} steht damit eine stille Reserve von {eur0(goldStats.gain)} gegenüber ({pct(goldStats.gain / goldStats.ak)} auf
+                  den Einstand). Die Position wird in Eigenverwahrung gehalten und ist institutionell nicht zugeordnet.
+                </p>
+              </div>
 
-  function statChip(label, value, color) {
-    return '<div style="display:flex;flex-direction:column;gap:3px;min-width:120px;">' +
-      '<div class="stat-label">' + label + '</div>' +
-      '<div class="stat-value" style="color:' + (color || T.textPrimary) + ';">' + value + '</div></div>';
-  }
+              {/* Appendix */}
+              <div className="po-section">
+                <h3 style={{ fontFamily: "'Fraunces', Georgia, serif", fontSize: 17, borderBottom: `1px solid ${PG}`, paddingBottom: 6 }}>Anhang: Einzelpositionen</h3>
+                <p style={{ fontSize: 9.5, color: PM, fontStyle: "italic", margin: "8px 0 10px" }}>Sortiert nach Saldo absteigend, {printPositions.length} Positionen, Stand {STAND_DATUM}.</p>
+                <table className="po-table">
+                  <thead><tr>
+                    <th style={th}>Bezeichnung</th><th style={th}>Nummer</th><th style={th}>Institut</th><th style={th}>Anlageklasse</th>
+                    <th style={{ ...th, textAlign: "right" }}>Saldo</th><th style={{ ...th, textAlign: "right" }}>Zins</th><th style={th}>Fälligkeit</th>
+                  </tr></thead>
+                  <tbody>{printPositions.map((p, i) => (
+                    <tr key={p.id}>
+                      <td style={tdAlt(i)}>{p.label}</td>
+                      <td style={tdAlt(i)}>{p.nummer || "–"}</td>
+                      <td style={tdAlt(i)}>{p.institut}</td>
+                      <td style={tdAlt(i)}>{p.assetClass.replace(" / ", "/")}</td>
+                      <td style={{ ...tdAlt(i), textAlign: "right" }}>{eur(p.saldo, 2)}</td>
+                      <td style={{ ...tdAlt(i), textAlign: "right" }}>{p.zins !== null && p.zins !== undefined ? pct(p.zins, 2) : "–"}</td>
+                      <td style={tdAlt(i)}>{p.faelligkeit ? p.faelligkeit.split("-").reverse().join(".") : "–"}</td>
+                    </tr>
+                  ))}</tbody>
+                </table>
+              </div>
 
-  function sortTh(key, label, align) {
-    var active = STATE.sortKey === key;
-    var arrow = active ? (STATE.sortDir === "asc" ? "▲" : "▼") : "↕";
-    return '<th data-sort="' + key + '" class="' + (active ? "sort-active" : "") + '"' +
-      (align ? ' style="text-align:' + align + ';"' : "") + '>' + label +
-      '<span style="margin-left:5px;font-size:9px;opacity:' + (active ? 1 : 0.5) + ';">' + arrow + '</span></th>';
-  }
-
-  function uniqueSorted(arr) {
-    var seen = {}, out = [];
-    arr.forEach(function (v) { if (!(v in seen)) { seen[v] = true; out.push(v); } });
-    return out.sort();
-  }
-
-  /* =============================================================
-     PRINT-ONLY REPORT (mirrors the screen dashboard, light theme)
-  ============================================================= */
-  function renderPrintOnly(agg) {
-    var total = agg.total;
-    if (!STATE.positions.length) return '<div class="print-only"></div>';
-    var PI = "#1F2733", PM = "#6B7280", PG = "#B8935A", PP = "#F6F4EF";
-    function th(label, align) { return '<th style="background:' + PI + ';color:#fff;font-weight:700;font-size:9px;text-transform:uppercase;letter-spacing:0.03em;padding:5px 7px;' + (align ? "text-align:" + align + ";" : "") + '">' + label + '</th>'; }
-    function td(val, i, align) { return '<td style="padding:5px 7px;background:' + (i % 2 ? PP : "#fff") + ';' + (align ? "text-align:" + align + ";" : "") + '">' + val + '</td>'; }
-
-    var html = '<div class="print-only" style="background:#fff;color:' + PI + ';font-family:Arial,sans-serif;font-size:11px;">';
-    html += '<div style="font-size:11px;color:' + PM + ';font-weight:700;letter-spacing:0.12em;">KAPITALVERMÖGEN</div>' +
-      '<div class="serif" style="font-size:32px;font-weight:600;color:' + PI + ';margin:4px 0 6px;">Vermögensübersicht</div>' +
-      '<div style="border-bottom:2px solid ' + PG + ';padding-bottom:10px;margin-bottom:16px;font-size:13px;color:' + PM + ';">Michaela &amp; Horst · Stand ' + STAND_DATUM + '</div>';
-
-    html += '<table style="width:100%;border-collapse:collapse;margin-bottom:16px;"><tbody><tr>';
-    [["Gesamtvermögen", eur0(total), PI], ["Positionen", num(STATE.positions.length), PI],
-     ["Ø Verzinsung", pct(agg.weightedRate, 2), PI], ["Zinsertrag p.a.", eur0(agg.totalInterest), PG]].forEach(function (kv) {
-      html += '<td style="background:' + PP + ';padding:10px 14px;width:25%;">' +
-        '<div style="font-size:8.5px;color:' + PM + ';font-weight:700;text-transform:uppercase;letter-spacing:0.05em;">' + kv[0] + '</div>' +
-        '<div class="serif" style="font-size:17px;font-weight:700;color:' + kv[2] + ';">' + kv[1] + '</div></td>';
-    });
-    html += '</tr></tbody></table>';
-
-    html += '<p style="line-height:1.6;margin-bottom:16px;">Zum Stichtag ' + STAND_DATUM + ' beläuft sich das gemeinsame Kapitalvermögen auf ' + eur0(total) +
-      ', verteilt über ' + STATE.positions.length + ' Einzelpositionen bei ' + agg.byInst.length + ' depotführenden Instituten. Von den verzinslich geführten ' +
-      'Positionen (Basis ' + eur0(agg.weightedBase) + ') resultiert eine gewichtete Durchschnittsverzinsung von ' + pct(agg.weightedRate, 2) +
-      ', was einem kalkulatorischen Zinsertrag von rund ' + eur0(agg.totalInterest) + ' pro Jahr entspricht.</p>';
-
-    html += '<h3 class="serif" style="font-size:17px;border-bottom:1px solid ' + PG + ';padding-bottom:6px;">Allokation nach Anlageklasse</h3>' +
-      '<table class="po-table" style="margin-top:8px;margin-bottom:18px;"><thead><tr>' + th("Anlageklasse") + th("Anteil", "right") + th("Wert", "right") + '</tr></thead><tbody>' +
-      agg.byClass.map(function (c, i) { return '<tr>' + td(escapeHtml(c.name), i) + td(pct(c.value / total), i, "right") + td(eur0(c.value), i, "right") + '</tr>'; }).join("") +
-      '</tbody></table>';
-
-    html += '<h3 class="serif" style="font-size:17px;border-bottom:1px solid ' + PG + ';padding-bottom:6px;">Konzentration nach Institut</h3>' +
-      '<p style="line-height:1.6;margin:8px 0 12px;">Der Herfindahl-Hirschman-Index (HHI) über die depotführenden Institute liegt bei ' + agg.hhi.toFixed(0) + ' von 10.000 Punkten. ' +
-      (agg.hhi > 2500 ? "Das entspricht einer hohen Konzentration oberhalb gängiger aufsichtlicher Schwellenwerte für Klumpenrisiken." :
-        "Das entspricht einer moderaten Streuung, liegt aber über einer Gleichverteilung auf " + agg.byInst.length + " Institute (HHI ≈ " + (10000 / agg.byInst.length).toFixed(0) + ").") +
-      ' Größte Einzelposition ist ' + escapeHtml(agg.byInst[0].name) + ' mit ' + eur0(agg.byInst[0].value) + ' (' + pct(agg.byInst[0].value / total) + ').</p>' +
-      '<table class="po-table" style="margin-bottom:18px;"><thead><tr>' + th("Institut") + th("Anteil", "right") + th("Wert", "right") + '</tr></thead><tbody>' +
-      agg.byInst.map(function (c, i) { return '<tr>' + td(escapeHtml(c.name), i) + td(pct(c.value / total), i, "right") + td(eur0(c.value), i, "right") + '</tr>'; }).join("") +
-      '</tbody></table>';
-
-    html += '<h3 class="serif" style="font-size:17px;border-bottom:1px solid ' + PG + ';padding-bottom:6px;">Zuordnung nach Eigentümer</h3>' +
-      '<table class="po-table" style="margin-top:8px;margin-bottom:18px;"><thead><tr>' + th("Eigentümer") + th("Anteil", "right") + th("Wert", "right") + '</tr></thead><tbody>' +
-      agg.byOwner.map(function (c, i) { return '<tr>' + td(escapeHtml(c.name), i) + td(pct(c.value / total), i, "right") + td(eur0(c.value), i, "right") + '</tr>'; }).join("") +
-      '</tbody></table>';
-
-    html += '<div class="po-section">';
-    if (agg.maturityTimeline.length) {
-      html += '<h3 class="serif" style="font-size:17px;border-bottom:1px solid ' + PG + ';padding-bottom:6px;">Fälligkeiten im Zeitverlauf</h3>' +
-        '<table class="po-table" style="margin-bottom:18px;"><thead><tr>' + th("Jahr") +
-        agg.maturityClasses.map(function (c) { return th(escapeHtml(c), "right"); }).join("") + th("Summe", "right") + '</tr></thead><tbody>' +
-        agg.maturityTimeline.map(function (row, i) {
-          var sum = agg.maturityClasses.reduce(function (s, c) { return s + (row[c] || 0); }, 0);
-          return '<tr>' + td(row.year, i) + agg.maturityClasses.map(function (c) { return td(row[c] ? eur0(row[c]) : "–", i, "right"); }).join("") + td('<b>' + eur0(sum) + '</b>', i, "right") + '</tr>';
-        }).join("") + '</tbody></table>';
-    }
-    if (agg.gold.count) {
-      html += '<h3 class="serif" style="font-size:17px;border-bottom:1px solid ' + PG + ';padding-bottom:6px;">Sonderposition: physisches Gold</h3>' +
-        '<p style="line-height:1.6;margin:8px 0 18px;">' + agg.gold.count + ' Barren zu je 250 g werden zum aktuellen Kurs mit insgesamt ' + eur0(agg.gold.value) +
-        ' bewertet. Den historischen Anschaffungskosten von ' + eur0(agg.gold.ak) + ' steht damit eine stille Reserve von ' + eur0(agg.gold.gain) +
-        ' gegenüber. Die Position wird in Eigenverwahrung gehalten.</p>';
-    }
-    html += '</div>';
-
-    html += '<div class="po-section"><h3 class="serif" style="font-size:17px;border-bottom:1px solid ' + PG + ';padding-bottom:6px;">Anhang: Einzelpositionen</h3>' +
-      '<p style="font-size:9.5px;color:' + PM + ';font-style:italic;margin:8px 0 10px;">Sortiert nach Saldo absteigend, ' + STATE.positions.length + ' Positionen, Stand ' + STAND_DATUM + '.</p>' +
-      '<table class="po-table"><thead><tr>' + th("Bezeichnung") + th("Institut") + th("Anlageklasse") + th("Saldo", "right") + th("Zins", "right") + th("Fälligkeit") + '</tr></thead><tbody>' +
-      STATE.positions.slice().sort(function (a, b) { return b.saldo - a.saldo; }).map(function (p, i) {
-        return '<tr>' + td(escapeHtml(p.label), i) + td(escapeHtml(p.institut), i) + td(escapeHtml(p.assetClass.replace(" / ", "/")), i) +
-          td(eur(p.saldo, 2), i, "right") + td((p.zins !== null && p.zins !== undefined) ? pct(p.zins, 2) : "–", i, "right") + td(dateDe(p.faelligkeit), i) + '</tr>';
-      }).join("") + '</tbody></table></div>';
-
-    html += '<p style="font-size:9px;color:' + PM + ';font-style:italic;line-height:1.6;margin-top:18px;">Hinweise: „Nicht zugeordnet" bezeichnet Positionen ohne im Datenblatt vermerktes depotführendes Institut. ' +
-      'Zinserträge sind kalkulatorisch und berücksichtigen keine Steuern oder Abgeltungssteuer. Kursgewinne bei Fonds, ETFs und Einzelaktien sind nicht enthalten. Alle Angaben ohne Gewähr.</p>';
-    html += '</div>';
-    return html;
-  }
-
-  /* =============================================================
-     EVENTS
-  ============================================================= */
-  function wireEvents() {
-    var printBtn = document.getElementById("printBtn");
-    if (printBtn) printBtn.addEventListener("click", function () { window.print(); });
-
-    var demoBtn = document.getElementById("demoBtn");
-    if (demoBtn) demoBtn.addEventListener("click", loadDemo);
-
-    var importBtnEmpty = document.getElementById("importBtnEmpty");
-    if (importBtnEmpty) importBtnEmpty.addEventListener("click", function () { document.getElementById("fileInput").click(); });
-
-    var searchInput = document.getElementById("searchInput");
-    if (searchInput) searchInput.addEventListener("input", function (e) {
-      STATE.search = e.target.value;
-      withFocusPreserved(render);
-    });
-
-    var filterInst = document.getElementById("filterInst");
-    if (filterInst) filterInst.addEventListener("change", function (e) { STATE.filterInst = e.target.value; render(); });
-
-    var filterClass = document.getElementById("filterClass");
-    if (filterClass) filterClass.addEventListener("change", function (e) { STATE.filterClass = e.target.value; render(); });
-
-    var addBtn = document.getElementById("addBtn");
-    if (addBtn) addBtn.addEventListener("click", addPosition);
-
-    var editToggle = document.getElementById("editToggle");
-    if (editToggle) editToggle.addEventListener("click", function () { STATE.editMode = !STATE.editMode; render(); });
-
-    var resetBtn = document.getElementById("resetBtn");
-    if (resetBtn) resetBtn.addEventListener("click", resetData);
-
-    var exportBackupBtn = document.getElementById("exportBackupBtn");
-    if (exportBackupBtn) exportBackupBtn.addEventListener("click", exportBackup);
-
-    var exportCsvBtn = document.getElementById("exportCsvBtn");
-    if (exportCsvBtn) exportCsvBtn.addEventListener("click", exportCSV);
-
-    var importBackupBtn = document.getElementById("importBackupBtn");
-    if (importBackupBtn) importBackupBtn.addEventListener("click", function () { document.getElementById("fileInput").click(); });
-
-    // sortable headers (event delegation)
-    var thead = document.querySelector("thead");
-    if (thead) thead.addEventListener("click", function (e) {
-      var th = e.target.closest("th[data-sort]");
-      if (!th) return;
-      var key = th.getAttribute("data-sort");
-      if (STATE.sortKey === key) STATE.sortDir = STATE.sortDir === "asc" ? "desc" : "asc";
-      else { STATE.sortKey = key; STATE.sortDir = "desc"; }
-      render();
-    });
-
-    // editable cells + delete buttons (event delegation)
-    var tbody = document.querySelector("tbody");
-    if (tbody) {
-      tbody.addEventListener("change", function (e) {
-        var input = e.target.closest("input[data-id]");
-        if (!input) return;
-        var id = Number(input.getAttribute("data-id"));
-        var field = input.getAttribute("data-field");
-        var value = input.value;
-        if (field === "saldo") value = parseFloat(value) || 0;
-        else if (field === "zins") value = value === "" ? null : parseFloat(value);
-        updatePosition(id, field, value);
-        render();
-      });
-      tbody.addEventListener("click", function (e) {
-        var btn = e.target.closest("button[data-del]");
-        if (!btn) return;
-        deletePosition(Number(btn.getAttribute("data-del")));
-      });
-    }
-  }
-
-  document.getElementById("fileInput").addEventListener("change", function (e) {
-    var file = e.target.files && e.target.files[0];
-    if (file) importBackup(file);
-    e.target.value = "";
-  });
-
-  render();
-})();
-</script>
-</body>
-</html>
+              <p style={{ fontSize: 9, color: PM, fontStyle: "italic", lineHeight: 1.6, marginTop: 18 }}>
+                Hinweise: „Nicht zugeordnet" bezeichnet Positionen ohne im Datenblatt vermerktes depotführendes Institut. Zinserträge sind kalkulatorisch
+                (Saldo × Zinssatz p.a.) und berücksichtigen keine Steuern, Vorfälligkeitsentgelte oder Abgeltungssteuer. Kursgewinne bei Fonds, ETFs und
+                Einzelaktien sind nicht enthalten. Alle Angaben ohne Gewähr.
+              </p>
+            </>
+          );
+        })()}
+      </div>
+    </div>
+  );
+}
