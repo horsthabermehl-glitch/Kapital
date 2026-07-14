@@ -131,12 +131,12 @@
   var DEFAULT_POSITIONS = [];
 
   var DEMO_POSITIONS = [
-    { id: 1, label: "Girokonto (Beispiel)", institut: "Musterbank", assetClass: "Liquidität / Tagesgeld", owner: "Gemeinsam", saldo: 12000, zins: 0, faelligkeit: null, zinsen: null, nummer: null },
-    { id: 2, label: "Festgeld (Beispiel)", institut: "Musterbank", assetClass: "Festgeld / Termineinlagen", owner: "Gemeinsam", saldo: 40000, zins: 0.025, faelligkeit: "2027-06-01", zinsen: 1000, nummer: null },
-    { id: 3, label: "Unternehmensanleihe (Beispiel)", institut: "Musterbank", assetClass: "Anleihen", owner: "Gemeinsam", saldo: 25000, zins: 0.03, faelligkeit: "2029-01-01", zinsen: 750, nummer: null },
-    { id: 4, label: "Aktienfonds (Beispiel)", institut: "Musterbank", assetClass: "Fonds / ETF", owner: "Gemeinsam", saldo: 30000, zins: null, faelligkeit: null, zinsen: null, nummer: null },
-    { id: 5, label: "Rentenversicherung (Beispiel)", institut: "Musterversicherung", assetClass: "Versicherung / Altersvorsorge", owner: "Horst", saldo: 20000, zins: null, faelligkeit: "2035-01-01", zinsen: null, nummer: null },
-    { id: 6, label: "Gold 250g (Beispiel)", institut: "Eigenverwahrung (Gold)", assetClass: "Gold (physisch)", owner: "Gemeinsam", saldo: 18000, zins: null, faelligkeit: "2023-01-15", zinsen: null, nummer: null }
+    { id: 1, label: "Girokonto (Beispiel)", institut: "Musterbank", assetClass: "Liquidität / Tagesgeld", owner: "Gemeinsam", saldo: 12000, zins: 0, faelligkeit: null, zinsen: null, nummer: null, ak: null },
+    { id: 2, label: "Festgeld (Beispiel)", institut: "Musterbank", assetClass: "Festgeld / Termineinlagen", owner: "Gemeinsam", saldo: 40000, zins: 0.025, faelligkeit: "2027-06-01", zinsen: 1000, nummer: null, ak: 40000 },
+    { id: 3, label: "Unternehmensanleihe (Beispiel)", institut: "Musterbank", assetClass: "Anleihen", owner: "Gemeinsam", saldo: 25000, zins: 0.03, faelligkeit: "2029-01-01", zinsen: 750, nummer: null, ak: 24200 },
+    { id: 4, label: "Aktienfonds (Beispiel)", institut: "Musterbank", assetClass: "Fonds / ETF", owner: "Gemeinsam", saldo: 30000, zins: null, faelligkeit: null, zinsen: null, nummer: null, ak: 22500 },
+    { id: 5, label: "Rentenversicherung (Beispiel)", institut: "Musterversicherung", assetClass: "Versicherung / Altersvorsorge", owner: "Horst", saldo: 20000, zins: null, faelligkeit: "2035-01-01", zinsen: null, nummer: null, ak: 18000 },
+    { id: 6, label: "Gold 250g (Beispiel)", institut: "Eigenverwahrung (Gold)", assetClass: "Gold (physisch)", owner: "Gemeinsam", saldo: 18000, zins: null, faelligkeit: "2023-01-15", zinsen: null, nummer: null, ak: 12500 }
   ];
 
   /* =============================================================
@@ -146,21 +146,31 @@
     positions: loadPositions(),
     search: "", filterInst: "Alle", filterClass: "Alle",
     sortKey: "saldo", sortDir: "desc",
-    editingIds: new Set(), saveNote: "",
+    saveNote: "",
     snapshots: loadSnapshots(),
     targetAlloc: loadTarget(),
     standDatum: loadStandDatum()
   };
+
+  function migratePositions(arr) {
+    return arr.map(function (p) {
+      if (p.ak === undefined || p.ak === null) {
+        var parsed = p.assetClass === "Gold (physisch)" ? parseAK(p.label) : null;
+        p.ak = parsed !== null && parsed !== undefined ? parsed : null;
+      }
+      return p;
+    });
+  }
 
   function loadPositions() {
     try {
       var raw = localStorage.getItem(STORAGE_KEY);
       if (raw) {
         var arr = JSON.parse(raw);
-        if (Array.isArray(arr)) return arr;
+        if (Array.isArray(arr)) return migratePositions(arr);
       }
     } catch (e) { /* localStorage nicht verfügbar oder Daten defekt */ }
-    return DEFAULT_POSITIONS.slice();
+    return migratePositions(DEFAULT_POSITIONS.slice());
   }
 
   function loadSnapshots() {
@@ -314,7 +324,7 @@
 
     var gold = positions.filter(function (p) { return p.assetClass === "Gold (physisch)"; });
     var goldValue = gold.reduce(function (s, p) { return s + p.saldo; }, 0);
-    var goldAK = gold.reduce(function (s, p) { return s + (parseAK(p.label) || 0); }, 0);
+    var goldAK = gold.reduce(function (s, p) { return s + (p.ak || 0); }, 0);
 
     var withDate = positions.filter(function (p) { return p.faelligkeit; });
     var years = [];
@@ -368,14 +378,26 @@
     });
     var targetPctSum = rebalancing.reduce(function (s, r) { return s + r.targetPct; }, 0);
 
+    // Gesamtperformance über alle Positionen mit erfasstem Anschaffungsbetrag
+    var withAK = positions.filter(function (p) { return p.ak !== null && p.ak !== undefined && p.ak > 0; });
+    var akSum = withAK.reduce(function (s, p) { return s + p.ak; }, 0);
+    var akCurrentValue = withAK.reduce(function (s, p) { return s + p.saldo; }, 0);
+    var overallPerformance = akSum ? (akCurrentValue - akSum) / akSum : null;
+
     return {
       total: total, byClass: byClass, byInst: byInst, byOwner: byOwner, hhi: hhi,
       weightedRate: weightedRate, weightedBase: base, totalInterest: totalInterest,
       gold: { count: gold.length, value: goldValue, ak: goldAK, gain: goldValue - goldAK },
       maturityTimeline: maturityTimeline, maturityClasses: maturityClasses,
       goldLots: goldLots, issuerRisk: issuerRisk, liquidityBreakdown: liquidityBreakdown,
-      rebalancing: rebalancing, targetPctSum: targetPctSum
+      rebalancing: rebalancing, targetPctSum: targetPctSum,
+      performance: { count: withAK.length, ak: akSum, value: akCurrentValue, fraction: overallPerformance }
     };
+  }
+
+  function performanceFraction(p) {
+    if (p.ak === null || p.ak === undefined || p.ak === 0) return null;
+    return (p.saldo - p.ak) / p.ak;
   }
 
   function filteredSortedPositions() {
@@ -389,6 +411,11 @@
       return true;
     });
     rows.sort(function (a, b) {
+      if (STATE.sortKey === "performance") {
+        var pa = performanceFraction(a), pb = performanceFraction(b);
+        pa = pa === null ? -Infinity : pa; pb = pb === null ? -Infinity : pb;
+        return STATE.sortDir === "asc" ? pa - pb : pb - pa;
+      }
       var av = a[STATE.sortKey], bv = b[STATE.sortKey];
       if (typeof av === "string" || typeof bv === "string") {
         av = av || ""; bv = bv || "";
@@ -508,7 +535,7 @@
     STATE.positions.push({
       id: nextId, label: "Neue Position", nummer: "", institut: "Sparkasse",
       assetClass: "Liquidität / Tagesgeld", owner: "Gemeinsam",
-      saldo: 0, zins: null, faelligkeit: null, zinsen: null, markiert: false
+      saldo: 0, zins: null, faelligkeit: null, zinsen: null, markiert: false, ak: null
     });
     persist();
     STATE.sortKey = "id"; STATE.sortDir = "desc";
@@ -580,7 +607,7 @@
         var valid = arr.every(function (p) { return p && typeof p.saldo === "number" && typeof p.label === "string"; });
         if (!valid) throw new Error("Struktur");
         if (!confirm(arr.length + " Positionen aus dieser Datei importieren? Der aktuelle Stand im Tool wird überschrieben.")) return;
-        STATE.positions = arr;
+        STATE.positions = migratePositions(arr);
         persist();
         render();
       } catch (err) {
@@ -591,33 +618,46 @@
   }
 
   /* =============================================================
-     FOCUS-PRESERVING RE-RENDER (for the live search field)
-  ============================================================= */
-  function withFocusPreserved(fn) {
-    var active = document.activeElement;
-    var id = active && active.id;
-    var selStart = active && typeof active.selectionStart === "number" ? active.selectionStart : null;
-    var selEnd = active && typeof active.selectionEnd === "number" ? active.selectionEnd : null;
-    fn();
-    if (id) {
-      var el = document.getElementById(id);
-      if (el) {
-        el.focus();
-        if (selStart !== null && el.setSelectionRange) {
-          try { el.setSelectionRange(selStart, selEnd); } catch (e) { /* ignore */ }
-        }
-      }
-    }
-  }
-
-  /* =============================================================
      RENDER
   ============================================================= */
-  function render() {
+  function renderInner() {
     var agg = computeAll(STATE.positions);
     var app = document.getElementById("app");
     app.innerHTML = renderScreen(agg) + renderPrintOnly(agg);
     wireEvents(agg);
+  }
+
+  // Every render preserves scroll position and refocuses whatever was focused
+  // (matched by id, or by data-id+data-field for table cells that share ids).
+  function render() {
+    var active = document.activeElement;
+    var id = active && active.id;
+    var dataId = active && active.getAttribute && active.getAttribute("data-id");
+    var dataField = active && active.getAttribute && active.getAttribute("data-field");
+    var selStart = null, selEnd = null;
+    try { selStart = active && typeof active.selectionStart === "number" ? active.selectionStart : null; selEnd = active && active.selectionEnd; } catch (e) { /* manche Input-Typen (z.B. date) erlauben das nicht */ }
+
+    var scrollBox = document.querySelector(".scrollbox");
+    var scrollTop = scrollBox ? scrollBox.scrollTop : null;
+    var pageScroll = window.scrollY;
+
+    renderInner();
+
+    var el = null;
+    if (dataId !== null && dataId !== undefined && dataField) {
+      el = document.querySelector('[data-id="' + dataId + '"][data-field="' + dataField + '"]');
+    } else if (id) {
+      el = document.getElementById(id);
+    }
+    if (el) {
+      el.focus({ preventScroll: true });
+      if (selStart !== null && el.setSelectionRange) {
+        try { el.setSelectionRange(selStart, selEnd); } catch (e) { /* ignore, z.B. bei type=date/number */ }
+      }
+    }
+    var scrollBox2 = document.querySelector(".scrollbox");
+    if (scrollBox2 && scrollTop !== null) scrollBox2.scrollTop = scrollTop;
+    window.scrollTo(0, pageScroll);
   }
 
   function renderScreen(agg) {
@@ -641,6 +681,7 @@
       statChip("Ø Verzinsung (verzinst)", pct(agg.weightedRate)) +
       statChip("Erw. Zinsertrag p.a.", eur0(agg.totalInterest), T.gold) +
       statChip("HHI Institute", agg.hhi ? agg.hhi.toFixed(0) : "–", agg.hhi > 2500 ? T.rust : T.textPrimary) +
+      (agg.performance.count ? statChip("Performance (" + agg.performance.count + " erfasst)", (agg.performance.fraction >= 0 ? "+" : "") + pct(agg.performance.fraction, 1), agg.performance.fraction >= 0 ? T.sage : T.rust) : "") +
       '<button class="print-btn" id="printBtn">⎙ Bericht drucken</button>' +
       '</div></div>';
 
@@ -824,7 +865,8 @@
       '<th style="cursor:default;text-align:center;">✓</th>' +
       sortTh("label", "Bezeichnung") + sortTh("nummer", "Nummer") + sortTh("institut", "Institut") +
       sortTh("assetClass", "Anlageklasse") + sortTh("owner", "Eigentümer") +
-      sortTh("saldo", "Saldo", "right") + sortTh("zins", "Zins %", "right") + sortTh("faelligkeit", "Fälligkeit") +
+      sortTh("saldo", "Saldo", "right") + sortTh("ak", "Anschaffung", "right") + sortTh("performance", "Performance", "right") +
+      sortTh("zins", "Zins %", "right") + sortTh("faelligkeit", "Fälligkeit") +
       '<th style="cursor:default;"></th>' +
       '</tr></thead><tbody>';
 
@@ -836,6 +878,10 @@
       var ownerCell = '<select class="filter" data-id="' + p.id + '" data-field="owner" style="width:100%;">' +
         OWNER_OPTIONS.map(function (o) { return '<option' + (o === p.owner ? " selected" : "") + '>' + escapeHtml(o) + '</option>'; }).join("") + '</select>';
       var dateCell = '<input type="date" data-id="' + p.id + '" data-field="faelligkeit" value="' + (p.faelligkeit || "") + '">';
+      var perf = performanceFraction(p);
+      var perfColor = perf === null ? T.textFaint : (perf > 0.0001 ? T.sage : (perf < -0.0001 ? T.rust : T.textMuted));
+      var perfText = perf === null ? "–" : (perf >= 0 ? "+" : "") + pct(perf, 1);
+      var perfAbs = (p.ak !== null && p.ak !== undefined) ? (p.saldo - p.ak) : null;
       html += '<tr>' +
         '<td style="text-align:center;"><input type="checkbox" data-id="' + p.id + '" data-field="markiert" data-kind="checkbox"' + (p.markiert ? " checked" : "") + ' title="Als geändert markieren (nur Dokumentation)" style="cursor:pointer;"></td>' +
         '<td style="max-width:220px;"><input data-id="' + p.id + '" data-field="label" value="' + escapeHtml(p.label) + '"></td>' +
@@ -845,6 +891,9 @@
         '<td style="color:' + T.textMuted + ';">' + ownerCell + '</td>' +
         '<td style="text-align:right;font-variant-numeric:tabular-nums;font-weight:500;">' +
         '<input type="text" inputmode="decimal" data-id="' + p.id + '" data-field="saldo" data-kind="currency" value="' + escapeHtml(eur(p.saldo, 2)) + '" style="text-align:right;"></td>' +
+        '<td style="text-align:right;font-variant-numeric:tabular-nums;">' +
+        '<input type="text" inputmode="decimal" data-id="' + p.id + '" data-field="ak" data-kind="currency" value="' + escapeHtml(p.ak === null || p.ak === undefined ? "" : eur(p.ak, 2)) + '" style="text-align:right;" placeholder="–"></td>' +
+        '<td style="text-align:right;font-variant-numeric:tabular-nums;color:' + perfColor + ';" title="' + (perfAbs !== null ? eur(perfAbs, 2) : "") + '">' + perfText + '</td>' +
         '<td style="text-align:right;font-variant-numeric:tabular-nums;">' +
         '<input type="text" inputmode="decimal" data-id="' + p.id + '" data-field="zins" data-kind="percent" value="' + escapeHtml(p.zins === null || p.zins === undefined ? "" : pct(p.zins, 3)) + '" style="text-align:right;"></td>' +
         '<td style="color:' + T.textMuted + ';">' + dateCell + '</td>' +
@@ -1021,7 +1070,7 @@
     var searchInput = document.getElementById("searchInput");
     if (searchInput) searchInput.addEventListener("input", function (e) {
       STATE.search = e.target.value;
-      withFocusPreserved(render);
+      render();
     });
 
     var filterInst = document.getElementById("filterInst");
@@ -1069,7 +1118,8 @@
         var p = STATE.positions.find(function (p) { return p.id === id; });
         if (!p) return;
         var kind = input.getAttribute("data-kind");
-        if (kind === "currency") input.value = String(p.saldo);
+        var field = input.getAttribute("data-field");
+        if (kind === "currency") input.value = (p[field] === null || p[field] === undefined) ? "" : String(p[field]);
         else if (kind === "percent") input.value = (p.zins === null || p.zins === undefined) ? "" : String(p.zins * 100);
         requestAnimationFrame(function () { input.select(); });
       });
