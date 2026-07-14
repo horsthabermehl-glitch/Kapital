@@ -95,9 +95,34 @@
   };
   var STAND_DATUM = "22.05.2026";
   var STORAGE_KEY = "kapitalvermoegen-positionen-v1";
+  var SNAPSHOT_KEY = "kapitalvermoegen-snapshots-v1";
+  var TARGET_KEY = "kapitalvermoegen-zielallokation-v1";
   var OWNER_OPTIONS = ["Gemeinsam", "Horst", "Michaela"];
   var ASSET_CLASS_OPTIONS = Object.keys(ASSET_COLORS);
   var INSTITUTE_OPTIONS = Object.keys(INST_COLORS);
+
+  // Positionen, deren Emittent identisch mit der depotführenden Stelle ist ("Eigenemission").
+  var ISSUER_ALIASES = {
+    "Commerzbank": ["commerzbank", "coba"],
+    "Sparkasse": ["sparkassenbrief"],
+    "Deutsche Bank": ["deutsche bank"]
+  };
+
+  var LIQUIDITY_TIERS = ["Sofort verfügbar", "Kurzfristig gebunden", "Mittelfristig gebunden", "Langfristig gebunden"];
+  var LIQUIDITY_COLORS = {
+    "Sofort verfügbar": "#7FA37F", "Kurzfristig gebunden": "#7396AC",
+    "Mittelfristig gebunden": "#C9A24A", "Langfristig gebunden": "#9B8AC4"
+  };
+  function classifyLiquidity(p, standDate) {
+    if (p.assetClass === "Liquidität / Tagesgeld") return "Sofort verfügbar";
+    if (p.assetClass === "Festgeld / Termineinlagen") {
+      if (!p.faelligkeit) return "Mittelfristig gebunden";
+      var days = (new Date(p.faelligkeit) - standDate) / 86400000;
+      return days <= 92 ? "Kurzfristig gebunden" : "Mittelfristig gebunden";
+    }
+    if (p.assetClass === "Versicherung / Altersvorsorge") return "Langfristig gebunden";
+    return "Mittelfristig gebunden";
+  }
 
   // Keine echten Positionsdaten im Quelltext (dieses File landet in einem Git-Repo).
   // Reale Werte werden ausschließlich lokal über "Backup importieren" eingespielt und
@@ -110,7 +135,7 @@
     { id: 3, label: "Unternehmensanleihe (Beispiel)", institut: "Musterbank", assetClass: "Anleihen", owner: "Gemeinsam", saldo: 25000, zins: 0.03, faelligkeit: "2029-01-01", zinsen: 750, nummer: null },
     { id: 4, label: "Aktienfonds (Beispiel)", institut: "Musterbank", assetClass: "Fonds / ETF", owner: "Gemeinsam", saldo: 30000, zins: null, faelligkeit: null, zinsen: null, nummer: null },
     { id: 5, label: "Rentenversicherung (Beispiel)", institut: "Musterversicherung", assetClass: "Versicherung / Altersvorsorge", owner: "Horst", saldo: 20000, zins: null, faelligkeit: "2035-01-01", zinsen: null, nummer: null },
-    { id: 6, label: "Gold 250g (Beispiel)", institut: "Eigenverwahrung (Gold)", assetClass: "Gold (physisch)", owner: "Gemeinsam", saldo: 18000, zins: null, faelligkeit: null, zinsen: null, nummer: null }
+    { id: 6, label: "Gold 250g (Beispiel)", institut: "Eigenverwahrung (Gold)", assetClass: "Gold (physisch)", owner: "Gemeinsam", saldo: 18000, zins: null, faelligkeit: "2023-01-15", zinsen: null, nummer: null }
   ];
 
   /* =============================================================
@@ -120,7 +145,9 @@
     positions: loadPositions(),
     search: "", filterInst: "Alle", filterClass: "Alle",
     sortKey: "saldo", sortDir: "desc",
-    editMode: false, saveNote: ""
+    editMode: false, saveNote: "",
+    snapshots: loadSnapshots(),
+    targetAlloc: loadTarget()
   };
 
   function loadPositions() {
@@ -132,6 +159,53 @@
       }
     } catch (e) { /* localStorage nicht verfügbar oder Daten defekt */ }
     return DEFAULT_POSITIONS.slice();
+  }
+
+  function loadSnapshots() {
+    try {
+      var raw = localStorage.getItem(SNAPSHOT_KEY);
+      if (raw) { var arr = JSON.parse(raw); if (Array.isArray(arr)) return arr; }
+    } catch (e) { /* keine Snapshots */ }
+    return [];
+  }
+  function persistSnapshots() {
+    try { localStorage.setItem(SNAPSHOT_KEY, JSON.stringify(STATE.snapshots)); } catch (e) { /* ignore */ }
+  }
+
+  function loadTarget() {
+    try {
+      var raw = localStorage.getItem(TARGET_KEY);
+      if (raw) { var obj = JSON.parse(raw); if (obj && typeof obj === "object") return obj; }
+    } catch (e) { /* keine Zielallokation gesetzt */ }
+    return {};
+  }
+  function persistTarget() {
+    try { localStorage.setItem(TARGET_KEY, JSON.stringify(STATE.targetAlloc)); } catch (e) { /* ignore */ }
+  }
+
+  function saveSnapshot() {
+    var agg = computeAll(STATE.positions);
+    var todayKey = new Date().toISOString().slice(0, 10);
+    var byClassObj = {};
+    agg.byClass.forEach(function (c) { byClassObj[c.name] = c.value; });
+    STATE.snapshots = STATE.snapshots.filter(function (s) { return s.date !== todayKey; });
+    STATE.snapshots.push({ date: todayKey, total: agg.total, byClass: byClassObj });
+    STATE.snapshots.sort(function (a, b) { return a.date.localeCompare(b.date); });
+    persistSnapshots();
+    flashNote("Snapshot gespeichert");
+    render();
+  }
+
+  function deleteSnapshot(date) {
+    STATE.snapshots = STATE.snapshots.filter(function (s) { return s.date !== date; });
+    persistSnapshots();
+    render();
+  }
+
+  function updateTarget(assetClass, value) {
+    STATE.targetAlloc[assetClass] = value;
+    persistTarget();
+    render();
   }
 
   function persist() {
@@ -242,11 +316,50 @@
       return row;
     });
 
+    // Steuer-Ampel Gold: physisches Gold ist nach § 23 EStG nach 1 Jahr Haltefrist steuerfrei.
+    var today = new Date();
+    var goldLots = gold.map(function (p) {
+      if (!p.faelligkeit) return Object.assign({}, p, { taxStatus: "unbekannt", taxFreeDate: null });
+      var purchase = new Date(p.faelligkeit);
+      var taxFree = new Date(purchase); taxFree.setFullYear(taxFree.getFullYear() + 1);
+      var daysLeft = Math.ceil((taxFree - today) / 86400000);
+      var taxStatus = daysLeft <= 0 ? "steuerfrei" : (daysLeft <= 60 ? "bald" : "pflichtig");
+      return Object.assign({}, p, { taxStatus: taxStatus, taxFreeDate: taxFree.toISOString().slice(0, 10) });
+    }).sort(function (a, b) { return (a.faelligkeit || "9999").localeCompare(b.faelligkeit || "9999"); });
+
+    // Emittentenrisiko: Eigenemissionen der depotführenden Stelle
+    var issuerRisk = byInst.map(function (i) {
+      var aliases = ISSUER_ALIASES[i.name] || [];
+      var ownIssuance = positions.filter(function (p) {
+        return p.institut === i.name && aliases.some(function (a) { return (p.label || "").toLowerCase().indexOf(a) !== -1; });
+      }).reduce(function (s, p) { return s + p.saldo; }, 0);
+      return { name: i.name, custody: i.value, ownIssuance: ownIssuance };
+    }).filter(function (i) { return i.ownIssuance > 0; });
+
+    // Liquiditätsstufen
+    var liqMap = {};
+    positions.forEach(function (p) {
+      var tier = classifyLiquidity(p, today);
+      liqMap[tier] = (liqMap[tier] || 0) + p.saldo;
+    });
+    var liquidityBreakdown = LIQUIDITY_TIERS.map(function (t) { return { name: t, value: liqMap[t] || 0 }; }).filter(function (t) { return t.value > 0; });
+
+    // Zielallokation / Rebalancing
+    var rebalancing = byClass.map(function (c) {
+      var actualPct = total ? (c.value / total) * 100 : 0;
+      var target = STATE.targetAlloc[c.name] !== undefined ? STATE.targetAlloc[c.name] : Math.round(actualPct * 10) / 10;
+      var targetValue = (target / 100) * total;
+      return { name: c.name, actualPct: actualPct, actualValue: c.value, targetPct: target, targetValue: targetValue, delta: targetValue - c.value };
+    });
+    var targetPctSum = rebalancing.reduce(function (s, r) { return s + r.targetPct; }, 0);
+
     return {
       total: total, byClass: byClass, byInst: byInst, byOwner: byOwner, hhi: hhi,
       weightedRate: weightedRate, weightedBase: base, totalInterest: totalInterest,
       gold: { count: gold.length, value: goldValue, ak: goldAK, gain: goldValue - goldAK },
-      maturityTimeline: maturityTimeline, maturityClasses: maturityClasses
+      maturityTimeline: maturityTimeline, maturityClasses: maturityClasses,
+      goldLots: goldLots, issuerRisk: issuerRisk, liquidityBreakdown: liquidityBreakdown,
+      rebalancing: rebalancing, targetPctSum: targetPctSum
     };
   }
 
@@ -335,6 +448,34 @@
       xLabels.push('<text x="' + (x + barW / 2).toFixed(1) + '" y="' + (height - 6) + '" text-anchor="middle" font-size="8" fill="' + T.textMuted + '">' + r.year + '</text>');
     });
     return '<svg viewBox="0 0 ' + width + ' ' + height + '" width="100%" height="' + height + '">' + ticks.join("") + bars.join("") + xLabels.join("") + '</svg>';
+  }
+
+  function lineChartSVG(snapshots, width, height) {
+    var pad = { top: 10, right: 14, bottom: 22, left: 46 };
+    var innerW = width - pad.left - pad.right, innerH = height - pad.top - pad.bottom;
+    var vals = snapshots.map(function (s) { return s.total; });
+    var maxVal = Math.max.apply(null, vals), minVal = Math.min.apply(null, vals);
+    if (maxVal === minVal) { maxVal = maxVal + 1; minVal = Math.max(0, minVal - 1); }
+    var n = snapshots.length;
+    var pts = snapshots.map(function (s, i) {
+      var x = pad.left + (n === 1 ? innerW / 2 : (i / (n - 1)) * innerW);
+      var y = pad.top + innerH - ((s.total - minVal) / (maxVal - minVal)) * innerH;
+      return { x: x, y: y, s: s };
+    });
+    var pathD = pts.map(function (p, i) { return (i === 0 ? "M " : "L ") + p.x.toFixed(1) + " " + p.y.toFixed(1); }).join(" ");
+    var ticks = [0, 0.5, 1].map(function (f) {
+      var val = minVal + (maxVal - minVal) * f, y = pad.top + innerH - f * innerH;
+      return '<line x1="' + pad.left + '" x2="' + (width - pad.right) + '" y1="' + y.toFixed(1) + '" y2="' + y.toFixed(1) + '" stroke="' + T.borderSoft + '" stroke-width="1"/>' +
+        '<text x="' + (pad.left - 6) + '" y="' + (y + 3).toFixed(1) + '" text-anchor="end" font-size="8" fill="' + T.textMuted + '">' + (val / 1000).toFixed(0) + 'k</text>';
+    }).join("");
+    var xLabels = pts.map(function (p) {
+      return '<text x="' + p.x.toFixed(1) + '" y="' + (height - 6) + '" text-anchor="middle" font-size="8" fill="' + T.textMuted + '">' + dateDe(p.s.date) + '</text>';
+    }).join("");
+    var dots = pts.map(function (p) {
+      return '<circle cx="' + p.x.toFixed(1) + '" cy="' + p.y.toFixed(1) + '" r="3" fill="' + T.gold + '"><title>' + dateDe(p.s.date) + ': ' + eur0(p.s.total) + '</title></circle>';
+    }).join("");
+    return '<svg viewBox="0 0 ' + width + ' ' + height + '" width="100%" height="' + height + '">' + ticks +
+      '<path d="' + pathD + '" fill="none" stroke="' + T.gold + '" stroke-width="2.5"/>' + dots + xLabels + '</svg>';
   }
 
   /* =============================================================
@@ -496,6 +637,22 @@
       return html;
     }
 
+    // VERMÖGENSVERLAUF (SNAPSHOTS)
+    html += '<div class="panel"><div class="panel-title">Vermögensverlauf</div>' +
+      '<div class="panel-subtitle">' + (STATE.snapshots.length ? STATE.snapshots.length + ' gespeicherte' + (STATE.snapshots.length === 1 ? "r" : "") + ' Snapshot' + (STATE.snapshots.length === 1 ? "" : "s") + ' — je Tag maximal einer' : 'Noch keine Snapshots — jeder Klick speichert den heutigen Gesamtwert für eine spätere Zeitreihe') + '</div>';
+    if (STATE.snapshots.length >= 2) {
+      html += lineChartSVG(STATE.snapshots, 860, 150);
+    } else if (STATE.snapshots.length === 1) {
+      html += '<div style="font-size:12.5px;color:' + T.textMuted + ';">Ein Snapshot vom ' + dateDe(STATE.snapshots[0].date) + ' ist gespeichert (' + eur0(STATE.snapshots[0].total) + '). Sobald ein zweiter hinzukommt, erscheint hier die Verlaufskurve.</div>';
+    }
+    html += '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">' +
+      '<button class="pill" id="snapshotBtn">+ Snapshot von heute speichern</button>' +
+      STATE.snapshots.map(function (s) {
+        return '<span style="display:inline-flex;align-items:center;gap:6px;font-size:11px;color:' + T.textFaint + ';border:1px solid ' + T.borderSoft + ';border-radius:20px;padding:3px 8px 3px 10px;">' +
+          dateDe(s.date) + ' · ' + eur0(s.total) +
+          '<button data-delsnap="' + s.date + '" style="background:transparent;border:none;color:' + T.rust + ';cursor:pointer;font-size:12px;line-height:1;padding:0;">×</button></span>';
+      }).join("") + '</div></div>';
+
     // CONCENTRATION RIBBON
     html += '<div class="panel"><div class="panel-title">Konzentration nach Institut</div>' +
       '<div class="panel-subtitle">Herfindahl-Index ' + agg.hhi.toFixed(0) + ' von 10.000 — ' +
@@ -513,6 +670,18 @@
           '<span style="font-variant-numeric:tabular-nums;">' + eur0(i.value) + '</span>' +
           '<span style="color:' + T.textFaint + ';">(' + pct(i.value / total) + ')</span></div>';
       }).join("") + '</div></div>';
+
+    // EMITTENTENRISIKO
+    if (agg.issuerRisk.length > 0) {
+      html += '<div class="panel"><div class="panel-title">Emittentenrisiko</div>' +
+        '<div class="panel-subtitle">Positionen, deren Emittent mit der depotführenden Stelle identisch ist — zusätzliches Risiko über die reine Depot-Konzentration hinaus, da Wertpapier und Verwahrstelle gemeinsam ausfallen können.</div>' +
+        agg.issuerRisk.map(function (i) {
+          return '<div style="display:flex;justify-content:space-between;align-items:center;font-size:12.5px;padding:6px 0;border-bottom:1px solid ' + T.borderSoft + ';">' +
+            '<span>' + escapeHtml(i.name) + '</span>' +
+            '<span style="color:' + T.textMuted + ';">Depot gesamt: <b style="color:' + T.textPrimary + ';">' + eur0(i.custody) + '</b></span>' +
+            '<span style="color:' + T.rust + ';">davon Eigenemission: <b>' + eur0(i.ownIssuance) + '</b> (' + pct(i.ownIssuance / i.custody) + ')</span></div>';
+        }).join("") + '</div>';
+    }
 
     // GRID: allocation + owner + gold
     html += '<div style="display:grid;grid-template-columns:1.3fr 1fr;gap:18px;">';
@@ -537,13 +706,26 @@
       }).join("") + '</div>';
 
     if (agg.gold.count) {
+      var taxFreeCount = agg.goldLots.filter(function (g) { return g.taxStatus === "steuerfrei"; }).length;
       html += '<div class="panel"><div class="panel-title">Gold — physische Reserve</div>' +
         '<div class="panel-subtitle">' + agg.gold.count + ' Barren à 250 g · Bewertung zum aktuellen Kurs</div>' +
         '<div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:10px;">' +
         '<div><div class="stat-label">Aktueller Wert</div><div class="serif" style="font-size:19px;color:' + T.gold + ';font-variant-numeric:tabular-nums;">' + eur0(agg.gold.value) + '</div></div>' +
         '<div><div class="stat-label">Anschaffungskosten</div><div style="font-size:15px;color:' + T.textMuted + ';font-variant-numeric:tabular-nums;">' + eur0(agg.gold.ak) + '</div></div>' +
         '<div><div class="stat-label">Stille Reserve</div><div style="font-size:15px;color:' + T.sage + ';font-variant-numeric:tabular-nums;">+' + eur0(agg.gold.gain) + '</div></div>' +
-        '</div></div>';
+        '</div>' +
+        '<div style="border-top:1px solid ' + T.borderSoft + ';padding-top:10px;">' +
+        '<div style="font-size:11px;color:' + T.textFaint + ';margin-bottom:6px;">Steuerfreie Veräußerung nach § 23 EStG (1 Jahr Haltefrist) — ' + taxFreeCount + ' von ' + agg.goldLots.length + ' Barren bereits steuerfrei</div>' +
+        '<div style="max-height:140px;overflow-y:auto;display:flex;flex-direction:column;gap:4px;">' +
+        agg.goldLots.map(function (g) {
+          var dot = g.taxStatus === "steuerfrei" ? T.sage : g.taxStatus === "bald" ? T.gold : g.taxStatus === "pflichtig" ? T.rust : T.textFaint;
+          var label = g.taxStatus === "unbekannt" ? "Kaufdatum unbekannt" : (g.taxStatus === "steuerfrei" ? "steuerfrei" : "steuerfrei ab " + dateDe(g.taxFreeDate));
+          var left = g.faelligkeit ? "Kauf " + dateDe(g.faelligkeit) : escapeHtml(g.label);
+          return '<div style="display:flex;align-items:center;gap:7px;font-size:11.5px;">' +
+            '<span style="width:7px;height:7px;border-radius:50%;background:' + dot + ';flex-shrink:0;"></span>' +
+            '<span style="color:' + T.textMuted + ';flex:1;">' + left + '</span>' +
+            '<span style="color:' + dot + ';">' + label + '</span></div>';
+        }).join("") + '</div></div></div>';
     }
     html += '</div></div>'; // end grid
 
@@ -555,6 +737,41 @@
       agg.maturityClasses.map(function (c) {
         return '<div class="legend-row"><span class="swatch" style="background:' + (ASSET_COLORS[c] || T.textFaint) + ';"></span><span style="color:' + T.textMuted + ';">' + escapeHtml(c) + '</span></div>';
       }).join("") + '</div></div>';
+
+    // LIQUIDITÄTSSTUFEN
+    html += '<div class="panel"><div class="panel-title">Liquiditätsstufen</div>' +
+      '<div class="panel-subtitle">Wie schnell wäre das Vermögen im Bedarfsfall verfügbar</div>' +
+      '<div style="display:flex;height:28px;border-radius:3px;overflow:hidden;border:1px solid ' + T.border + ';">' +
+      agg.liquidityBreakdown.map(function (l) {
+        return '<div title="' + escapeHtml(l.name) + ': ' + eur0(l.value) + ' (' + pct(l.value / total) + ')" style="width:' + (l.value / total * 100) + '%;background:' + LIQUIDITY_COLORS[l.name] + ';"></div>';
+      }).join("") + '</div>' +
+      '<div style="display:flex;flex-wrap:wrap;gap:8px 20px;">' +
+      agg.liquidityBreakdown.map(function (l) {
+        return '<div class="legend-row"><span class="swatch" style="background:' + LIQUIDITY_COLORS[l.name] + ';"></span>' +
+          '<span style="color:' + T.textMuted + ';">' + escapeHtml(l.name) + '</span>' +
+          '<span style="font-variant-numeric:tabular-nums;">' + eur0(l.value) + '</span>' +
+          '<span style="color:' + T.textFaint + ';">(' + pct(l.value / total) + ')</span></div>';
+      }).join("") + '</div></div>';
+
+    // ZIELALLOKATION / REBALANCING
+    html += '<div class="panel"><div class="panel-title">Zielallokation &amp; Rebalancing</div>' +
+      '<div class="panel-subtitle">Ziel-Anteile editierbar — Differenz zeigt Aufstockungs-/Reduzierungsbedarf in Euro</div>' +
+      '<table style="width:100%;border-collapse:collapse;font-size:12.5px;"><thead><tr style="border-bottom:1px solid ' + T.border + ';">' +
+      '<th style="text-align:left;padding:5px 6px;color:' + T.textMuted + ';font-size:10.5px;text-transform:uppercase;">Anlageklasse</th>' +
+      '<th style="text-align:right;padding:5px 6px;color:' + T.textMuted + ';font-size:10.5px;text-transform:uppercase;">Ist %</th>' +
+      '<th style="text-align:right;padding:5px 6px;color:' + T.textMuted + ';font-size:10.5px;text-transform:uppercase;">Ist €</th>' +
+      '<th style="text-align:right;padding:5px 6px;color:' + T.textMuted + ';font-size:10.5px;text-transform:uppercase;">Ziel %</th>' +
+      '<th style="text-align:right;padding:5px 6px;color:' + T.textMuted + ';font-size:10.5px;text-transform:uppercase;">Differenz</th></tr></thead><tbody>' +
+      agg.rebalancing.map(function (r) {
+        var deltaColor = r.delta > 1 ? T.sage : (r.delta < -1 ? T.rust : T.textFaint);
+        return '<tr style="border-bottom:1px solid ' + T.borderSoft + ';">' +
+          '<td style="padding:6px;">' + escapeHtml(r.name) + '</td>' +
+          '<td style="padding:6px;text-align:right;color:' + T.textMuted + ';font-variant-numeric:tabular-nums;">' + r.actualPct.toFixed(1).replace(".", ",") + ' %</td>' +
+          '<td style="padding:6px;text-align:right;font-variant-numeric:tabular-nums;">' + eur0(r.actualValue) + '</td>' +
+          '<td style="padding:6px;text-align:right;"><input type="number" step="0.1" data-target="' + escapeHtml(r.name) + '" value="' + r.targetPct + '" style="width:64px;text-align:right;background:' + T.panelAlt + ';border:1px solid ' + T.border + ';border-radius:3px;color:' + T.textPrimary + ';padding:2px 5px;font-size:12.5px;"></td>' +
+          '<td style="padding:6px;text-align:right;font-variant-numeric:tabular-nums;color:' + deltaColor + ';font-weight:500;">' + (r.delta > 1 ? "+" : "") + eur0(r.delta) + '</td></tr>';
+      }).join("") + '</tbody></table>' +
+      '<div style="font-size:11px;color:' + (Math.abs(agg.targetPctSum - 100) > 0.5 ? T.rust : T.textFaint) + ';margin-top:4px;">Summe Ziel-Anteile: ' + agg.targetPctSum.toFixed(1).replace(".", ",") + ' %' + (Math.abs(agg.targetPctSum - 100) > 0.5 ? " — sollte 100 % ergeben" : " ✓") + '</div></div>';
 
     // TABLE
     var institutes = ["Alle"].concat(uniqueSorted(STATE.positions.map(function (p) { return p.institut; })));
@@ -582,7 +799,7 @@
       '<button class="pill" id="exportCsvBtn">⬇ Als CSV (Excel)</button>' +
       '</div>';
 
-    html += '<div class="scrollbox"><table><thead><tr>' +
+    html += '<div class="scrollbox"><table id="positionsTable"><thead><tr>' +
       sortTh("label", "Bezeichnung") + sortTh("nummer", "Nummer") + sortTh("institut", "Institut") +
       sortTh("assetClass", "Anlageklasse") + sortTh("owner", "Eigentümer") +
       sortTh("saldo", "Saldo", "right") + sortTh("zins", "Zins %", "right") + sortTh("faelligkeit", "Fälligkeit") +
@@ -711,12 +928,35 @@
         }).join("") + '</tbody></table>';
     }
     if (agg.gold.count) {
+      var taxFreeCountP = agg.goldLots.filter(function (g) { return g.taxStatus === "steuerfrei"; }).length;
       html += '<h3 class="serif" style="font-size:17px;border-bottom:1px solid ' + PG + ';padding-bottom:6px;">Sonderposition: physisches Gold</h3>' +
         '<p style="line-height:1.6;margin:8px 0 18px;">' + agg.gold.count + ' Barren zu je 250 g werden zum aktuellen Kurs mit insgesamt ' + eur0(agg.gold.value) +
         ' bewertet. Den historischen Anschaffungskosten von ' + eur0(agg.gold.ak) + ' steht damit eine stille Reserve von ' + eur0(agg.gold.gain) +
-        ' gegenüber. Die Position wird in Eigenverwahrung gehalten.</p>';
+        ' gegenüber. Die Position wird in Eigenverwahrung gehalten. Nach § 23 EStG (1 Jahr Haltefrist) sind bereits ' + taxFreeCountP + ' von ' + agg.goldLots.length + ' Barren steuerfrei veräußerbar.</p>';
     }
     html += '</div>';
+
+    if (agg.issuerRisk.length > 0) {
+      html += '<div class="po-section"><h3 class="serif" style="font-size:17px;border-bottom:1px solid ' + PG + ';padding-bottom:6px;">Emittentenrisiko</h3>' +
+        '<p style="font-size:9.5px;color:' + PM + ';font-style:italic;margin:8px 0 12px;">Positionen, deren Emittent mit der depotführenden Stelle identisch ist.</p>' +
+        '<table class="po-table" style="margin-bottom:18px;"><thead><tr>' + th("Institut") + th("Depot gesamt", "right") + th("davon Eigenemission", "right") + '</tr></thead><tbody>' +
+        agg.issuerRisk.map(function (i, idx) {
+          return '<tr>' + td(escapeHtml(i.name), idx) + td(eur0(i.custody), idx, "right") + td(eur0(i.ownIssuance) + ' (' + pct(i.ownIssuance / i.custody) + ')', idx, "right") + '</tr>';
+        }).join("") + '</tbody></table></div>';
+    }
+
+    html += '<div class="po-section">' +
+      '<h3 class="serif" style="font-size:17px;border-bottom:1px solid ' + PG + ';padding-bottom:6px;">Liquiditätsstufen</h3>' +
+      '<table class="po-table" style="margin-bottom:18px;"><thead><tr>' + th("Stufe") + th("Anteil", "right") + th("Wert", "right") + '</tr></thead><tbody>' +
+      agg.liquidityBreakdown.map(function (l, idx) {
+        return '<tr>' + td(escapeHtml(l.name), idx) + td(pct(l.value / total), idx, "right") + td(eur0(l.value), idx, "right") + '</tr>';
+      }).join("") + '</tbody></table>' +
+      '<h3 class="serif" style="font-size:17px;border-bottom:1px solid ' + PG + ';padding-bottom:6px;">Zielallokation &amp; Rebalancing</h3>' +
+      '<table class="po-table" style="margin-bottom:18px;"><thead><tr>' + th("Anlageklasse") + th("Ist %", "right") + th("Ist €", "right") + th("Ziel %", "right") + th("Differenz", "right") + '</tr></thead><tbody>' +
+      agg.rebalancing.map(function (r, idx) {
+        return '<tr>' + td(escapeHtml(r.name), idx) + td(r.actualPct.toFixed(1).replace(".", ",") + ' %', idx, "right") + td(eur0(r.actualValue), idx, "right") +
+          td(r.targetPct.toFixed(1).replace(".", ",") + ' %', idx, "right") + td((r.delta > 1 ? "+" : "") + eur0(r.delta), idx, "right") + '</tr>';
+      }).join("") + '</tbody></table></div>';
 
     html += '<div class="po-section"><h3 class="serif" style="font-size:17px;border-bottom:1px solid ' + PG + ';padding-bottom:6px;">Anhang: Einzelpositionen</h3>' +
       '<p style="font-size:9.5px;color:' + PM + ';font-style:italic;margin:8px 0 10px;">Sortiert nach Saldo absteigend, ' + STATE.positions.length + ' Positionen, Stand ' + STAND_DATUM + '.</p>' +
@@ -738,6 +978,21 @@
   function wireEvents() {
     var printBtn = document.getElementById("printBtn");
     if (printBtn) printBtn.addEventListener("click", function () { window.print(); });
+
+    var snapshotBtn = document.getElementById("snapshotBtn");
+    if (snapshotBtn) snapshotBtn.addEventListener("click", saveSnapshot);
+
+    var screenRoot = document.querySelector(".screen-only");
+    if (screenRoot) {
+      screenRoot.addEventListener("click", function (e) {
+        var delSnap = e.target.closest("button[data-delsnap]");
+        if (delSnap) deleteSnapshot(delSnap.getAttribute("data-delsnap"));
+      });
+      screenRoot.addEventListener("change", function (e) {
+        var targetInput = e.target.closest("input[data-target]");
+        if (targetInput) updateTarget(targetInput.getAttribute("data-target"), parseFloat(targetInput.value) || 0);
+      });
+    }
 
     var demoBtn = document.getElementById("demoBtn");
     if (demoBtn) demoBtn.addEventListener("click", loadDemo);
@@ -776,7 +1031,7 @@
     if (importBackupBtn) importBackupBtn.addEventListener("click", function () { document.getElementById("fileInput").click(); });
 
     // sortable headers (event delegation)
-    var thead = document.querySelector(".screen-only thead");
+    var thead = document.querySelector("#positionsTable thead");
     if (thead) thead.addEventListener("click", function (e) {
       var th = e.target.closest("th[data-sort]");
       if (!th) return;
@@ -787,7 +1042,7 @@
     });
 
     // editable cells + delete buttons (event delegation)
-    var tbody = document.querySelector(".screen-only tbody");
+    var tbody = document.querySelector("#positionsTable tbody");
     if (tbody) {
       // Currency/percent fields: show the raw editable number while focused.
       tbody.addEventListener("focusin", function (e) {
