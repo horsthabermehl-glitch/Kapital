@@ -16,7 +16,7 @@
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
   .serif { font-family: Georgia, "Times New Roman", serif; }
   ::selection { background: var(--goldSoft); color: #1A1D22; }
-  .wrap { max-width: 1180px; margin: 0 auto; padding: 32px 24px 56px; }
+  .wrap { max-width: 1720px; margin: 0 auto; padding: 32px clamp(16px, 3vw, 48px) 56px; }
   .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 4px;
     padding: 20px 22px; display: flex; flex-direction: column; gap: 12px; margin-bottom: 18px; }
   .panel-title { font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
@@ -24,6 +24,7 @@
   .stat-label { font-size: 10.5px; color: var(--faint); letter-spacing: 0.06em; text-transform: uppercase; }
   .stat-value { font-family: Georgia, serif; font-size: 21px; font-weight: 600; font-variant-numeric: tabular-nums; }
   table { border-collapse: collapse; width: 100%; }
+  #positionsTable { min-width: 1280px; }
   th, td { text-align: left; padding: 7px 9px; font-size: 12.5px; }
   th { position: sticky; top: 0; background: var(--panelAlt); color: var(--muted); font-weight: 600;
     letter-spacing: 0.04em; text-transform: uppercase; font-size: 10px; cursor: pointer; user-select: none;
@@ -36,7 +37,7 @@
     width: 100%; padding: 3px 5px; border-radius: 2px; font-variant-numeric: tabular-nums; font-family: inherit; }
   td input:hover { border-color: var(--borderSoft); }
   td input:focus { border-color: var(--goldSoft); outline: none; background: rgba(184,147,90,0.08); }
-  .scrollbox { max-height: 460px; overflow-y: auto; border: 1px solid var(--border); border-radius: 3px; }
+  .scrollbox { max-height: 460px; overflow-y: auto; overflow-x: auto; border: 1px solid var(--border); border-radius: 3px; }
   button.pill { background: var(--panelAlt); border: 1px solid var(--border); color: var(--muted); font-size: 11.5px;
     padding: 5px 12px; border-radius: 20px; cursor: pointer; font-family: inherit; transition: all .15s; }
   button.pill:hover { border-color: var(--goldSoft); color: var(--ink); }
@@ -877,12 +878,12 @@
       '</div>';
 
     html += '<div class="scrollbox"><table id="positionsTable"><thead><tr>' +
-      '<th style="cursor:default;text-align:center;">✓</th>' +
-      sortTh("label", "Bezeichnung") + sortTh("nummer", "Nummer") + sortTh("institut", "Institut") +
-      sortTh("assetClass", "Anlageklasse") + sortTh("owner", "Eigentümer") +
-      sortTh("saldo", "Saldo", "right") + sortTh("ak", "Anschaffung", "right") + sortTh("performance", "Performance", "right") +
-      sortTh("zins", "Zins %", "right") + sortTh("faelligkeit", "Fälligkeit") +
-      '<th style="cursor:default;"></th>' +
+      '<th style="cursor:default;text-align:center;width:36px;">✓</th>' +
+      sortTh("label", "Bezeichnung", null, 220) + sortTh("nummer", "Nummer", null, 160) + sortTh("institut", "Institut", null, 150) +
+      sortTh("assetClass", "Anlageklasse", null, 170) + sortTh("owner", "Eigentümer", null, 110) +
+      sortTh("saldo", "Saldo", "right", 120) + sortTh("ak", "Anschaffung", "right", 120) + sortTh("performance", "Performance", "right", 95) +
+      sortTh("zins", "Zins %", "right", 95) + sortTh("faelligkeit", "Fälligkeit", null, 115) +
+      '<th style="cursor:default;width:40px;"></th>' +
       '</tr></thead><tbody>';
 
     rows.forEach(function (p, rowIdx) {
@@ -934,11 +935,14 @@
       '<div class="stat-value" style="color:' + (color || T.textPrimary) + ';">' + value + '</div></div>';
   }
 
-  function sortTh(key, label, align) {
+  function sortTh(key, label, align, minWidth) {
     var active = STATE.sortKey === key;
     var arrow = active ? (STATE.sortDir === "asc" ? "▲" : "▼") : "↕";
+    var styleParts = [];
+    if (align) styleParts.push("text-align:" + align);
+    if (minWidth) styleParts.push("min-width:" + minWidth + "px");
     return '<th data-sort="' + key + '" class="' + (active ? "sort-active" : "") + '"' +
-      (align ? ' style="text-align:' + align + ';"' : "") + '>' + label +
+      (styleParts.length ? ' style="' + styleParts.join(";") + ';"' : "") + '>' + label +
       '<span style="margin-left:5px;font-size:9px;opacity:' + (active ? 1 : 0.5) + ';">' + arrow + '</span></th>';
   }
 
