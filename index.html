@@ -291,6 +291,21 @@
     return isNaN(val) ? null : val;
   }
 
+  // Parses a date typed as "TT.MM.JJJJ" into ISO (YYYY-MM-DD). Empty input clears the date.
+  // Returns { valid: true, iso: string|null } or { valid: false }.
+  function parseGermanDate(str) {
+    str = String(str == null ? "" : str).trim();
+    if (!str) return { valid: true, iso: null };
+    var m = /^(\d{1,2})\.(\d{1,2})\.(\d{4})$/.exec(str);
+    if (!m) return { valid: false };
+    var day = parseInt(m[1], 10), month = parseInt(m[2], 10), year = parseInt(m[3], 10);
+    if (month < 1 || month > 12 || day < 1 || day > 31) return { valid: false };
+    var iso = String(year).padStart(4, "0") + "-" + String(month).padStart(2, "0") + "-" + String(day).padStart(2, "0");
+    var d = new Date(iso + "T00:00:00");
+    if (isNaN(d.getTime()) || d.getFullYear() !== year || d.getMonth() + 1 !== month || d.getDate() !== day) return { valid: false };
+    return { valid: true, iso: iso };
+  }
+
   /* =============================================================
      AGGREGATES
   ============================================================= */
@@ -673,7 +688,7 @@
     html += '<div style="margin-bottom:28px;display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:18px;">' +
       '<div><div style="font-size:12px;color:' + T.textFaint + ';letter-spacing:0.14em;text-transform:uppercase;margin-bottom:8px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">' +
       '<span>Kapitalvermögen · Michaela &amp; Horst · Stand</span>' +
-      '<input type="date" id="standDatumInput" value="' + STATE.standDatum + '" style="background:' + T.panelAlt + ';border:1px solid ' + T.border + ';border-radius:3px;color:' + T.textMuted + ';font-size:11.5px;padding:3px 6px;letter-spacing:normal;text-transform:none;font-family:inherit;">' +
+      '<input type="text" inputmode="numeric" id="standDatumInput" placeholder="TT.MM.JJJJ" value="' + dateDe(STATE.standDatum) + '" style="background:' + T.panelAlt + ';border:1px solid ' + T.border + ';border-radius:3px;color:' + T.textMuted + ';font-size:11.5px;padding:3px 6px;letter-spacing:normal;text-transform:none;font-family:inherit;width:100px;">' +
       '</div>' +
       '<div class="serif" style="font-size:48px;font-weight:600;line-height:1;font-variant-numeric:tabular-nums;">' + eur0(total) + '</div></div>' +
       '<div style="display:flex;gap:24px;flex-wrap:wrap;align-items:flex-end;">' +
@@ -877,7 +892,7 @@
         ASSET_CLASS_OPTIONS.map(function (c) { return '<option' + (c === p.assetClass ? " selected" : "") + '>' + escapeHtml(c) + '</option>'; }).join("") + '</select>';
       var ownerCell = '<select class="filter" data-id="' + p.id + '" data-field="owner" style="width:100%;">' +
         OWNER_OPTIONS.map(function (o) { return '<option' + (o === p.owner ? " selected" : "") + '>' + escapeHtml(o) + '</option>'; }).join("") + '</select>';
-      var dateCell = '<input type="date" data-id="' + p.id + '" data-field="faelligkeit" value="' + (p.faelligkeit || "") + '">';
+      var dateCell = '<input type="text" inputmode="numeric" placeholder="TT.MM.JJJJ" data-id="' + p.id + '" data-field="faelligkeit" data-kind="date" value="' + (p.faelligkeit ? dateDe(p.faelligkeit) : "") + '">';
       var perf = performanceFraction(p);
       var perfColor = perf === null ? T.textFaint : (perf > 0.0001 ? T.sage : (perf < -0.0001 ? T.rust : T.textMuted));
       var perfText = perf === null ? "–" : (perf >= 0 ? "+" : "") + pct(perf, 1);
@@ -1044,7 +1059,15 @@
     if (printBtn) printBtn.addEventListener("click", function () { window.print(); });
 
     var standDatumInput = document.getElementById("standDatumInput");
-    if (standDatumInput) standDatumInput.addEventListener("change", function (e) { updateStandDatum(e.target.value); });
+    if (standDatumInput) standDatumInput.addEventListener("change", function (e) {
+      var parsed = parseGermanDate(e.target.value);
+      if (!parsed.valid || !parsed.iso) {
+        flashNote("Ungültiges Datum — bitte TT.MM.JJJJ");
+        render();
+        return;
+      }
+      updateStandDatum(parsed.iso);
+    });
 
     var snapshotBtn = document.getElementById("snapshotBtn");
     if (snapshotBtn) snapshotBtn.addEventListener("click", saveSnapshot);
@@ -1139,8 +1162,14 @@
         } else if (kind === "percent") {
           if (value === "") { value = null; }
           else { var pv = parseFlexibleNumber(value); value = pv === null ? null : pv / 100; }
-        } else if (field === "faelligkeit") {
-          value = value || null;
+        } else if (kind === "date") {
+          var parsedDate = parseGermanDate(value);
+          if (!parsedDate.valid) {
+            flashNote("Ungültiges Datum — bitte TT.MM.JJJJ");
+            render();
+            return;
+          }
+          value = parsedDate.iso;
         }
         updatePosition(id, field, value);
         render();
