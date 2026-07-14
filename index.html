@@ -508,10 +508,9 @@
     STATE.positions.push({
       id: nextId, label: "Neue Position", nummer: "", institut: "Sparkasse",
       assetClass: "Liquidität / Tagesgeld", owner: "Gemeinsam",
-      saldo: 0, zins: null, faelligkeit: null, zinsen: null
+      saldo: 0, zins: null, faelligkeit: null, zinsen: null, markiert: false
     });
     persist();
-    STATE.editingIds.add(nextId);
     STATE.sortKey = "id"; STATE.sortDir = "desc";
     STATE.filterInst = "Alle"; STATE.filterClass = "Alle"; STATE.search = "";
     render();
@@ -830,35 +829,26 @@
       '</tr></thead><tbody>';
 
     rows.forEach(function (p, rowIdx) {
-      var isEditing = STATE.editingIds.has(p.id);
-      var instCell, classCell, ownerCell, dateCell;
-      if (isEditing) {
-        instCell = '<select class="filter" data-id="' + p.id + '" data-field="institut" style="width:100%;">' +
-          INSTITUTE_OPTIONS.map(function (i) { return '<option' + (i === p.institut ? " selected" : "") + '>' + escapeHtml(i) + '</option>'; }).join("") + '</select>';
-        classCell = '<select class="filter" data-id="' + p.id + '" data-field="assetClass" style="width:100%;">' +
-          ASSET_CLASS_OPTIONS.map(function (c) { return '<option' + (c === p.assetClass ? " selected" : "") + '>' + escapeHtml(c) + '</option>'; }).join("") + '</select>';
-        ownerCell = '<select class="filter" data-id="' + p.id + '" data-field="owner" style="width:100%;">' +
-          OWNER_OPTIONS.map(function (o) { return '<option' + (o === p.owner ? " selected" : "") + '>' + escapeHtml(o) + '</option>'; }).join("") + '</select>';
-        dateCell = '<input type="date" data-id="' + p.id + '" data-field="faelligkeit" value="' + (p.faelligkeit || "") + '">';
-      } else {
-        instCell = '<span class="legend-row"><span class="swatch" style="background:' + (INST_COLORS[p.institut] || T.textFaint) + ';"></span>' + escapeHtml(p.institut) + '</span>';
-        classCell = escapeHtml(p.assetClass);
-        ownerCell = escapeHtml(p.owner);
-        dateCell = dateDe(p.faelligkeit);
-      }
+      var instCell = '<select class="filter" data-id="' + p.id + '" data-field="institut" style="width:100%;">' +
+        INSTITUTE_OPTIONS.map(function (i) { return '<option' + (i === p.institut ? " selected" : "") + '>' + escapeHtml(i) + '</option>'; }).join("") + '</select>';
+      var classCell = '<select class="filter" data-id="' + p.id + '" data-field="assetClass" style="width:100%;">' +
+        ASSET_CLASS_OPTIONS.map(function (c) { return '<option' + (c === p.assetClass ? " selected" : "") + '>' + escapeHtml(c) + '</option>'; }).join("") + '</select>';
+      var ownerCell = '<select class="filter" data-id="' + p.id + '" data-field="owner" style="width:100%;">' +
+        OWNER_OPTIONS.map(function (o) { return '<option' + (o === p.owner ? " selected" : "") + '>' + escapeHtml(o) + '</option>'; }).join("") + '</select>';
+      var dateCell = '<input type="date" data-id="' + p.id + '" data-field="faelligkeit" value="' + (p.faelligkeit || "") + '">';
       html += '<tr>' +
-        '<td style="text-align:center;"><input type="checkbox" data-editcheck="' + p.id + '"' + (isEditing ? " checked" : "") + ' title="Bearbeiten" style="cursor:pointer;"></td>' +
-        '<td style="max-width:220px;">' + (isEditing ? '<input data-id="' + p.id + '" data-field="label" value="' + escapeHtml(p.label) + '">' : escapeHtml(p.label)) + '</td>' +
-        '<td style="color:' + T.textMuted + ';">' + (isEditing ? '<input data-id="' + p.id + '" data-field="nummer" value="' + escapeHtml(p.nummer || "") + '">' : escapeHtml(p.nummer || "–")) + '</td>' +
+        '<td style="text-align:center;"><input type="checkbox" data-id="' + p.id + '" data-field="markiert" data-kind="checkbox"' + (p.markiert ? " checked" : "") + ' title="Als geändert markieren (nur Dokumentation)" style="cursor:pointer;"></td>' +
+        '<td style="max-width:220px;"><input data-id="' + p.id + '" data-field="label" value="' + escapeHtml(p.label) + '"></td>' +
+        '<td style="color:' + T.textMuted + ';"><input data-id="' + p.id + '" data-field="nummer" value="' + escapeHtml(p.nummer || "") + '"></td>' +
         '<td>' + instCell + '</td>' +
         '<td style="color:' + T.textMuted + ';">' + classCell + '</td>' +
         '<td style="color:' + T.textMuted + ';">' + ownerCell + '</td>' +
         '<td style="text-align:right;font-variant-numeric:tabular-nums;font-weight:500;">' +
-        (isEditing ? '<input type="text" inputmode="decimal" data-id="' + p.id + '" data-field="saldo" data-kind="currency" value="' + escapeHtml(eur(p.saldo, 2)) + '" style="text-align:right;">' : eur(p.saldo, 2)) + '</td>' +
+        '<input type="text" inputmode="decimal" data-id="' + p.id + '" data-field="saldo" data-kind="currency" value="' + escapeHtml(eur(p.saldo, 2)) + '" style="text-align:right;"></td>' +
         '<td style="text-align:right;font-variant-numeric:tabular-nums;">' +
-        (isEditing ? '<input type="text" inputmode="decimal" data-id="' + p.id + '" data-field="zins" data-kind="percent" value="' + escapeHtml(p.zins === null || p.zins === undefined ? "" : pct(p.zins, 3)) + '" style="text-align:right;">' : ((p.zins !== null && p.zins !== undefined) ? pct(p.zins, 3) : "–")) + '</td>' +
+        '<input type="text" inputmode="decimal" data-id="' + p.id + '" data-field="zins" data-kind="percent" value="' + escapeHtml(p.zins === null || p.zins === undefined ? "" : pct(p.zins, 3)) + '" style="text-align:right;"></td>' +
         '<td style="color:' + T.textMuted + ';">' + dateCell + '</td>' +
-        '<td style="text-align:center;">' + (isEditing ? '<button data-del="' + p.id + '" style="background:transparent;border:1px solid ' + T.border + ';color:' + T.rust + ';border-radius:3px;width:24px;height:24px;cursor:pointer;font-size:13px;line-height:1;">×</button>' : "") + '</td>' +
+        '<td style="text-align:center;"><button data-del="' + p.id + '" style="background:transparent;border:1px solid ' + T.border + ';color:' + T.rust + ';border-radius:3px;width:24px;height:24px;cursor:pointer;font-size:13px;line-height:1;">×</button></td>' +
         '</tr>';
     });
     html += '</tbody></table></div></div>';
@@ -1085,20 +1075,15 @@
       });
 
       tbody.addEventListener("change", function (e) {
-        var checkbox = e.target.closest("input[data-editcheck]");
-        if (checkbox) {
-          var cid = Number(checkbox.getAttribute("data-editcheck"));
-          if (checkbox.checked) STATE.editingIds.add(cid); else STATE.editingIds.delete(cid);
-          render();
-          return;
-        }
         var target = e.target.closest("[data-id]");
         if (!target) return;
         var id = Number(target.getAttribute("data-id"));
         var field = target.getAttribute("data-field");
         var kind = target.getAttribute("data-kind");
         var value = target.value;
-        if (kind === "currency") {
+        if (kind === "checkbox") {
+          value = target.checked;
+        } else if (kind === "currency") {
           var cv = parseFlexibleNumber(value);
           value = cv === null ? 0 : cv;
         } else if (kind === "percent") {
